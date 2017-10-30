@@ -4,3 +4,5 @@ data/
 *.html
 *.zip
 *.csv
+
+.DS_Store
