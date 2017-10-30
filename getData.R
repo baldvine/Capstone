@@ -16,5 +16,5 @@ zipDir <- strsplit(zippedFiles$Name[1],split="/")[[1]][1]
 print(zipDir)
 
 if (!dir.exists(paste0("./data/",zipDir))) {
-    unzip(zipfile = fileZip, exdir = "./data/")
+    unzip(zipfile = fileZip, exdir = "./data")
 }
