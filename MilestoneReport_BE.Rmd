@@ -1,0 +1,182 @@
+---
+title: "Data Scienist Milestone Report"
+author: "Baldvin Einarsson"
+date: "10/30/2017"
+output:
+  html_document:
+    keep_md: yes
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment = "", cache.path = "./data/cache/")
+library(ggplot2)
+library(magrittr)
+library(knitr)
+library(tokenizers)
+library(tm)
+library(RWeka)
+
+# Holy smokes, it took forever to load rJava, see
+# https://github.com/MTFA/CohortEx/wiki/Run-rJava-with-RStudio-under-OSX-10.10,-10.11-(El-Capitan)-or-10.12-(Sierra)
+
+# library(ctv)
+# install.views("NaturalLanguageProcessing")
+```
+
+This is a milestone report for the Data Scientist Specialization Capstone project from [Coursera](https://www.coursera.org). Below, we'll give code which downloads the data, loads it in, and performs basic exploratory data analysis. This will form the basis for a predictive model, which we intend to create a Shiny app for.
+
+# Download and load data
+
+The data comes from the following location:
+[https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip](https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip). Let's download it (if necessary!):
+
+```{r downloadData}
+
+fileURL <- "https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/"
+fileZip <- "./data/Coursera-SwiftKey.zip"
+
+if (!file.exists(fileZip)){
+    cat("Downloading. This may take a while...")
+    download.file(url=fileURL, destfile = fileZip, method='curl', quiet = TRUE)
+}
+
+```
+
+Next, we do some (manual) inspecting of the files in the `.zip` file. We see (again, manually), that all the zipped files are stored in a folder called `final/`. Let's unzip the files if that directory does not exist:
+
+```{r unzipFiles}
+# Get the file names of the files in the zip:
+zippedFiles <- unzip(zipfile = fileZip, list=TRUE)
+
+# Obtain the directory name:
+zipDir <- strsplit(zippedFiles$Name[1],split="/")[[1]][1]
+
+if (!dir.exists(paste0("./data/",zipDir))) {
+    unzip(zipfile = fileZip, exdir = "./data")
+}
+```
+
+Now, in order to load into `R`, let's make our lives easier and create an object called `fileNames.US` which contains the file names. It's value is the following:
+```{r setFileNamesEtc, echo=FALSE}
+# Set the directory ...
+fileDir <- "./data/final/"
+# ... and language file name conventions:
+fileLanguage <- list(English = "en_US", Finnish = "fi_FI",
+                     German = "de_DE", Russian = "ru_RU")
+
+# This gets appended to the `fileDir.lang`
+fileNameSuffix <- list(Blogs = '.blogs.txt',
+                       News = '.news.txt',
+                       Twitter = '.twitter.txt')
+# Set up a list of file names:
+fileNames.US <- 
+    as.list(paste0(fileDir,fileLanguage$English, "/", 
+                   fileLanguage$English,fileNameSuffix))
+names(fileNames.US) <- names(fileNameSuffix)
+paste(names(fileNames.US), unlist(fileNames.US), sep = ": ", collapse = "\n") %>% cat
+```
+
+We are now in a position to read in the files:
+```{r readData, message=FALSE, results='hide', cache=TRUE}
+fileConnections <- lapply(X = fileNames.US, FUN = file)
+corpus <- lapply(X = fileConnections, FUN = readLines, skipNul = TRUE)
+lapply(X = fileConnections, FUN = close)
+```
+
+# Exploratory Data Analysis
+
+Let's do some basic inspection of the files and loaded objects. Note that the word count comes from package `tokenizers`:
+```{r basicFileAndObjectInfo, echo=FALSE, cache=TRUE, dependson="readData"}
+kable(data.frame(Type = names(fileNames.US),
+                 FileName = unlist(fileNames.US),
+                 FileSize = (fileNames.US %>% 
+                                 sapply(., FUN = file.size) %>% 
+                                 '/'(.,1024) %>% 
+                                 format(big.mark = ",", digits = 4, nsmall = 0)),
+                 ObjectSize = (corpus %>% 
+                                 sapply(., FUN = object.size) %>% 
+                                 '/'(.,1024) %>% 
+                                 format(big.mark = ",", digits = 4, nsmall = 0)),
+                 LineCount = format(sapply(corpus, length),
+                                    big.mark = ",", nsmall = 0, digits = 4),
+                 WordCount =  sapply(X = corpus, 
+                                     FUN = function(x){
+                                         tokenize_words(x, lowercase = TRUE) %>%
+                                             unlist %>%
+                                             unique %>%
+                                             length %>%
+                                             format(big.mark = ",", digits = 4, nsmall = 0)
+                                         })
+                 ),
+      row.names = FALSE,
+      col.names = c("File type", "File name","File Size (MB)", "Object Size (MB)", 
+                    "Line count", "Word (from 'tokenizers'"), 
+      align = c("l","l", "r","r","r")
+      )
+```
+
+We want to clean the data bit, such as
+
+* change to lower case
+* remove Internet links
+* remove double entries
+* remove superfluous whitespace
+* remove punctuation
+* remove numbers
+
+In order to do this, let's have a look at the [Natural Langue Processing Task View](https://cran.r-project.org/web/views/NaturalLanguageProcessing.html). There are plenty of packages to choose from, but for now let's start with [tm](https://cran.r-project.org/web/packages/tm/index.html).
+
+In order to get things done faster, we pick out 2 % of entries from each type of data sources:
+```{r corpusSubsetting, cache=TRUE, dependson="readData"}
+set.seed(42)
+useRatio <- 0.02
+subsetCorpus <- 
+    c(sample(corpus$Blogs, size = useRatio*length(corpus$Blogs), replace = FALSE),
+      sample(corpus$News, size = useRatio*length(corpus$News), replace = FALSE),
+      sample(corpus$Twitter, size = useRatio*length(corpus$Twitter), replace = FALSE)
+    )
+rm(corpus); invisible(gc())
+```
+
+```{r echo=TRUE, cache=TRUE, dependson="corpusSubsetting"}
+subsetCorpus <- VCorpus(VectorSource(subsetCorpus))
+toRemove <- content_transformer(function(x, pattern) gsub(pattern, " ", x))
+subsetCorpus <- tm_map(subsetCorpus, toRemove, "(f|ht)tp(s?)://(.*)[.][a-z]+")
+subsetCorpus <- tm_map(subsetCorpus, toRemove, "@[^\\s]+")
+subsetCorpus <- tm_map(subsetCorpus, tolower)
+subsetCorpus <- tm_map(subsetCorpus, removeWords, stopwords("en"))
+subsetCorpus <- tm_map(subsetCorpus, removePunctuation)
+subsetCorpus <- tm_map(subsetCorpus, removeNumbers)
+subsetCorpus <- tm_map(subsetCorpus, stripWhitespace)
+subsetCorpus <- tm_map(subsetCorpus, PlainTextDocument)
+```
+
+
+```{r ngrams, eval=FALSE}
+unigramTokenizer <- function(x) {
+        NGramTokenizer(x, Weka_control(min = 1, max = 1))
+}
+unigrams <- 
+    DocumentTermMatrix(subsetCorpus, 
+                       control = list(tokenize = unigramTokenizer))
+
+BigramTokenizer <- function(x) {
+        NGramTokenizer(x, Weka_control(min = 2, max = 2))
+}
+bigrams <- DocumentTermMatrix(us_files, control = list(tokenize = BigramTokenizer))
+
+TrigramTokenizer <- function(x) {
+        NGramTokenizer(x, Weka_control(min = 3, max = 3))
+}
+trigrams <- DocumentTermMatrix(us_files, control = list(tokenize = TrigramTokenizer))
+```
+
+```{r eval=FALSE}
+unigrams_frequency <- sort(colSums(as.matrix(unigrams)),decreasing = TRUE)[1:32]
+unigrams_freq_df <- data.frame(word = names(unigrams_frequency), freq = unigrams_frequency)
+
+ggplot(data=head(unigrams_freq_df, n=32), aes(x=reorder(word, freq), y=freq)) + geom_bar(stat="identity") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + coord_flip()
+```
+

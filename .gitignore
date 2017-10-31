@@ -6,3 +6,4 @@ data/
 *.csv
 
 .DS_Store
+data__packages
