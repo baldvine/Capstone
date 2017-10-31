@@ -9,9 +9,6 @@ fileNameSuffix <- list(Blogs = '.blogs.txt',
                        News = '.news.txt',
                        Twitter = '.twitter.txt')
 
-# Count number of lines, and max length of lines
-numLines <- list()
-
 tweety <- file(paste0(fileDir,fileLang$English, "/", fileLang$English,fileNameSuffix$Twitter))
 us.twitter <- readLines(con = tweety)
 close(tweety)
@@ -21,3 +18,30 @@ grep("biostats",us.twitter,value=TRUE)
 
 grep("A computer once beat me at chess, but it was no match for me at kickboxing",us.twitter,value=TRUE)
 # Gives three results
+
+sum(grepl("love",us.twitter)) / sum(grepl("hate",us.twitter))
+# Approx 4.1
+
+max(sapply(us.twitter, nchar))
+# 140
+
+rm(us.twitter); invisible(gc())
+
+
+newsy <- file(paste0(fileDir,fileLang$English, "/", fileLang$English,fileNameSuffix$News))
+us.news <- readLines(con = newsy)
+close(newsy)
+
+max(sapply(us.news, nchar))
+# 11,384
+rm(us.news); invisible(gc())
+
+
+
+blogsy <- file(paste0(fileDir,fileLang$English, "/", fileLang$English,fileNameSuffix$Blogs))
+us.blogs <- readLines(con = blogsy)
+close(blogsy)
+
+max(sapply(us.blogs, nchar))
+# 40,833
+rm(us.blogs); invisible(gc())
