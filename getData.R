@@ -1,6 +1,9 @@
 
+# Set the working directory to the main folder
+# setwd("")
+
 fileURL <- "https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/"
-fileZip <- "Coursera-SwiftKey.zip"
+fileZip <- "./data/Coursera-SwiftKey.zip"
 
 if (!file.exists(fileZip)){
     download.file(url=fileURL, destfile = fileZip, method='curl')
@@ -12,6 +15,6 @@ print(zippedFiles)
 zipDir <- strsplit(zippedFiles$Name[1],split="/")[[1]][1]
 print(zipDir)
 
-if (!file.exists(zipDir)){
-    unzip(zipfile = fileZip)
+if (!dir.exists(paste0("./data/",zipDir))) {
+    unzip(zipfile = fileZip, exdir = "./data")
 }
