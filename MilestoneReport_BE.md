@@ -1,4 +1,4 @@
-# Data Scienist Milestone Report
+# Data Science Capstone Milestone Report
 Baldvin Einarsson  
 10/30/2017  
 
@@ -49,23 +49,29 @@ We are now in a position to read in the files:
 
 ```r
 fileConnections <- lapply(X = fileNames.US, FUN = file)
-corpora <- lapply(X = fileConnections, FUN = readLines, skipNul = TRUE)
+corpus <- lapply(X = fileConnections, FUN = readLines, skipNul = TRUE)
+```
+
+```
+Warning in FUN(X[[i]], ...): incomplete final line found on './data/final/
+en_US/en_US.news.txt'
+```
+
+```r
 lapply(X = fileConnections, FUN = close)
 ```
 
-Let's do some basic inspection of the files and loaded objects:
-
-
-File type   File name                               File Size (MB)   Object Size (MB)   Line count
-----------  -------------------------------------  ---------------  -----------------  -----------
-Blogs       ./data/final/en_US/en_US.blogs.txt             205,234            254,457      899,288
-News        ./data/final/en_US/en_US.news.txt              200,988            255,624    1,010,242
-Twitter     ./data/final/en_US/en_US.twitter.txt           163,189            308,630    2,360,148
-
-
 # Exploratory Data Analysis
 
-Before we start, we want to clean the data bit, such as
+Let's do some basic inspection of the files and loaded objects. Note that the word count comes from package `tokenizers`:
+
+File type   File name                               File Size (MB)   Object Size (MB)   Line count   Word (from 'tokenizers'
+----------  -------------------------------------  ---------------  -----------------  -----------  ------------------------
+Blogs       ./data/final/en_US/en_US.blogs.txt             205,234            254,457      899,288                   360,784
+News        ./data/final/en_US/en_US.news.txt              200,988             19,640       77,259                    89,335
+Twitter     ./data/final/en_US/en_US.twitter.txt           163,189            308,630    2,360,148                   383,567
+
+We want to clean the data bit, such as
 
 * change to lower case
 * remove Internet links
@@ -74,20 +80,62 @@ Before we start, we want to clean the data bit, such as
 * remove punctuation
 * remove numbers
 
-In order to do this, let's have a look at the [Natural Langue Processing Task View](https://cran.r-project.org/web/views/NaturalLanguageProcessing.html). There are penty of packages to choose from, but for now let's start with [tm](https://cran.r-project.org/web/packages/tm/index.html)
+In order to do this, let's have a look at the [Natural Langue Processing Task View](https://cran.r-project.org/web/views/NaturalLanguageProcessing.html). There are plenty of packages to choose from, but for now let's start with [tm](https://cran.r-project.org/web/packages/tm/index.html).
 
-
-
-Let's try out some cleaning and tokenizing on a subset of the data, in order to get things done faster. We pick out 5 % of entries from each type of data sources:
+In order to get things done faster, we pick out 2 % of entries from each type of data sources:
 
 ```r
 set.seed(42)
-subsetCorpora <- 
-    c(sample(corpora$Blogs, size = 0.05*length(corpora$Blogs), replace = FALSE),
-      sample(corpora$News, size = 0.05*length(corpora$News), replace = FALSE),
-      sample(corpora$Twitter, size = 0.05*length(corpora$Twitter), replace = FALSE)
+useRatio <- 0.02
+subsetCorpus <- 
+    c(sample(corpus$Blogs, size = useRatio*length(corpus$Blogs), replace = FALSE),
+      sample(corpus$News, size = useRatio*length(corpus$News), replace = FALSE),
+      sample(corpus$Twitter, size = useRatio*length(corpus$Twitter), replace = FALSE)
     )
+rm(corpus); invisible(gc())
 ```
 
 
-Let's use the package `tokenizer`
+```r
+subsetCorpus <- VCorpus(VectorSource(subsetCorpus))
+toRemove <- content_transformer(function(x, pattern) gsub(pattern, " ", x))
+subsetCorpus <- tm_map(subsetCorpus, toRemove, "(f|ht)tp(s?)://(.*)[.][a-z]+")
+subsetCorpus <- tm_map(subsetCorpus, toRemove, "@[^\\s]+")
+subsetCorpus <- tm_map(subsetCorpus, tolower)
+subsetCorpus <- tm_map(subsetCorpus, removeWords, stopwords("en"))
+subsetCorpus <- tm_map(subsetCorpus, removePunctuation)
+subsetCorpus <- tm_map(subsetCorpus, removeNumbers)
+subsetCorpus <- tm_map(subsetCorpus, stripWhitespace)
+subsetCorpus <- tm_map(subsetCorpus, PlainTextDocument)
+```
+
+
+
+```r
+unigramTokenizer <- function(x) {
+        NGramTokenizer(x, Weka_control(min = 1, max = 1))
+}
+unigrams <- 
+    DocumentTermMatrix(subsetCorpus, 
+                       control = list(tokenize = unigramTokenizer))
+
+BigramTokenizer <- function(x) {
+        NGramTokenizer(x, Weka_control(min = 2, max = 2))
+}
+bigrams <- DocumentTermMatrix(us_files, control = list(tokenize = BigramTokenizer))
+
+TrigramTokenizer <- function(x) {
+        NGramTokenizer(x, Weka_control(min = 3, max = 3))
+}
+trigrams <- DocumentTermMatrix(us_files, control = list(tokenize = TrigramTokenizer))
+```
+
+
+```r
+unigrams_frequency <- sort(colSums(as.matrix(unigrams)),decreasing = TRUE)[1:32]
+unigrams_freq_df <- data.frame(word = names(unigrams_frequency), freq = unigrams_frequency)
+
+ggplot(data=head(unigrams_freq_df, n=32), aes(x=reorder(word, freq), y=freq)) + geom_bar(stat="identity") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + coord_flip()
+```
+

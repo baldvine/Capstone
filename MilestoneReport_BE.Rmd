@@ -1,5 +1,5 @@
 ---
-title: "Data Scienist Milestone Report"
+title: "Data Science Capstone Milestone Report"
 author: "Baldvin Einarsson"
 date: "10/30/2017"
 output:
@@ -17,7 +17,7 @@ library(tokenizers)
 library(tm)
 library(RWeka)
 
-# Holy smokes, it took forever to load rJava, see
+# Holy smokes, it took forever to install rJava, see
 # https://github.com/MTFA/CohortEx/wiki/Run-rJava-with-RStudio-under-OSX-10.10,-10.11-(El-Capitan)-or-10.12-(Sierra)
 
 # library(ctv)
@@ -80,7 +80,7 @@ paste(names(fileNames.US), unlist(fileNames.US), sep = ": ", collapse = "\n") %>
 We are now in a position to read in the files:
 ```{r readData, message=FALSE, results='hide', cache=TRUE}
 fileConnections <- lapply(X = fileNames.US, FUN = file)
-corpus <- lapply(X = fileConnections, FUN = readLines, skipNul = TRUE)
+corpus <- lapply(X = fileConnections, FUN = readLines, skipNul = TRUE, encoding = "Latin-1")
 lapply(X = fileConnections, FUN = close)
 ```
 
@@ -111,8 +111,8 @@ kable(data.frame(Type = names(fileNames.US),
                  ),
       row.names = FALSE,
       col.names = c("File type", "File name","File Size (MB)", "Object Size (MB)", 
-                    "Line count", "Word (from 'tokenizers'"), 
-      align = c("l","l", "r","r","r")
+                    "Line count", "Word (from 'tokenizers')"), 
+      align = c("l","l", "r","r","r","r")
       )
 ```
 
@@ -127,10 +127,10 @@ We want to clean the data bit, such as
 
 In order to do this, let's have a look at the [Natural Langue Processing Task View](https://cran.r-project.org/web/views/NaturalLanguageProcessing.html). There are plenty of packages to choose from, but for now let's start with [tm](https://cran.r-project.org/web/packages/tm/index.html).
 
-In order to get things done faster, we pick out 2 % of entries from each type of data sources:
+In order to get things done faster, we pick out 1 % of entries from each type of data sources:
 ```{r corpusSubsetting, cache=TRUE, dependson="readData"}
 set.seed(42)
-useRatio <- 0.02
+useRatio <- 0.01
 subsetCorpus <- 
     c(sample(corpus$Blogs, size = useRatio*length(corpus$Blogs), replace = FALSE),
       sample(corpus$News, size = useRatio*length(corpus$News), replace = FALSE),
@@ -139,21 +139,38 @@ subsetCorpus <-
 rm(corpus); invisible(gc())
 ```
 
+
+We then follow the instructions in the [tm package vignette](https://cran.r-project.org/web/packages/tm/vignettes/tm.pdf) and create an object which `tm` can work with. Ok, let's do a lot of cleaning. Most are self-explanatory, but comments are provided:
 ```{r echo=TRUE, cache=TRUE, dependson="corpusSubsetting"}
+# Here, VCorpus stands for "Volatile Corpus"
+# Also, using VectorSource, means that each vector entry is treated like a "document"
 subsetCorpus <- VCorpus(VectorSource(subsetCorpus))
+
+# Function to remove patterns
 toRemove <- content_transformer(function(x, pattern) gsub(pattern, " ", x))
+
+# OK, so here we go:
+
+# Remove ftp or http links:
 subsetCorpus <- tm_map(subsetCorpus, toRemove, "(f|ht)tp(s?)://(.*)[.][a-z]+")
+# Remove twitter handles (i.e. anything which has @ symbol followed by non-blank spaces:
 subsetCorpus <- tm_map(subsetCorpus, toRemove, "@[^\\s]+")
+# Set to lower case
 subsetCorpus <- tm_map(subsetCorpus, tolower)
+# Remove so called "stop words". Type stopwords("en") to see which they are
 subsetCorpus <- tm_map(subsetCorpus, removeWords, stopwords("en"))
+# Remove punctuation
 subsetCorpus <- tm_map(subsetCorpus, removePunctuation)
+# Remove numbers
 subsetCorpus <- tm_map(subsetCorpus, removeNumbers)
+# Strip of superfluous whitespace
 subsetCorpus <- tm_map(subsetCorpus, stripWhitespace)
+# 
 subsetCorpus <- tm_map(subsetCorpus, PlainTextDocument)
 ```
 
 
-```{r ngrams, eval=FALSE}
+```{r ngrams}
 unigramTokenizer <- function(x) {
         NGramTokenizer(x, Weka_control(min = 1, max = 1))
 }
@@ -161,22 +178,40 @@ unigrams <-
     DocumentTermMatrix(subsetCorpus, 
                        control = list(tokenize = unigramTokenizer))
 
-BigramTokenizer <- function(x) {
-        NGramTokenizer(x, Weka_control(min = 2, max = 2))
-}
-bigrams <- DocumentTermMatrix(us_files, control = list(tokenize = BigramTokenizer))
+# BigramTokenizer <- function(x) {
+#         NGramTokenizer(x, Weka_control(min = 2, max = 2))
+# }
+# bigrams <- DocumentTermMatrix(subsetCorpus, control = list(tokenize = BigramTokenizer))
 
-TrigramTokenizer <- function(x) {
-        NGramTokenizer(x, Weka_control(min = 3, max = 3))
-}
-trigrams <- DocumentTermMatrix(us_files, control = list(tokenize = TrigramTokenizer))
+# TrigramTokenizer <- function(x) {
+#         NGramTokenizer(x, Weka_control(min = 3, max = 3))
+# }
+# trigrams <- DocumentTermMatrix(us_files, control = list(tokenize = TrigramTokenizer))
 ```
 
-```{r eval=FALSE}
-unigrams_frequency <- sort(colSums(as.matrix(unigrams)),decreasing = TRUE)[1:32]
-unigrams_freq_df <- data.frame(word = names(unigrams_frequency), freq = unigrams_frequency)
 
-ggplot(data=head(unigrams_freq_df, n=32), aes(x=reorder(word, freq), y=freq)) + geom_bar(stat="identity") + 
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + coord_flip()
+
+```{r plotFreq}
+
+# as.matrix is a massive memory hog!!!!!!!!!
+# unigrams_frequency <- sort(colSums(as.matrix(unigrams)), decreasing = TRUE)
+# unigrams_freq_df <- data.frame(Word = names(unigrams_frequency), Frequency = unigrams_frequency)
+
+# Let's use the 'findFreqTerms()' function to filter out the low frequency words:
+unigrams.subset <- unigrams[,match(findFreqTerms(unigrams, 1000), 
+                                   unigrams$dimnames$Terms)]
+# Note that we simply found the column IDs of the those terms and subset.
+# Then, we compute the frequencies:
+unigrams.freq <- sort(colSums(as.matrix(unigrams.subset)), decreasing = TRUE)
+unigrams.df <- data.frame(Word = names(unigrams.freq), 
+                          Frequency = unigrams.freq)
+
+ggplot(data=unigrams.df, aes(x = reorder(Word, Frequency), y=Frequency)) + 
+    geom_bar(stat = "identity") + 
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 10),  
+          axis.text.y = element_text(size = 12)
+          ) + 
+    xlab("Word") +
+    coord_flip()
 ```
 
