@@ -1,5 +1,7 @@
 
 data/
+rsconnect/
+MilestoneReport_BE_files/
 
 *.html
 *.zip

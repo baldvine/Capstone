@@ -1,7 +1,7 @@
 ---
 title: "Data Science Capstone Milestone Report"
 author: "Baldvin Einarsson"
-date: "10/30/2017"
+date: "10/31/2017"
 output:
   html_document:
     keep_md: yes
@@ -9,10 +9,12 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, comment = "", cache.path = "./data/cache/")
+library(knitr)
+opts_knit$set(upload.fun = image_uri)
+opts_chunk$set(echo = TRUE, comment = "", cache.path = "./data/cache/")
+
 library(ggplot2)
 library(magrittr)
-library(knitr)
 library(tokenizers)
 library(tm)
 library(RWeka)
@@ -24,7 +26,9 @@ library(RWeka)
 # install.views("NaturalLanguageProcessing")
 ```
 
-This is a milestone report for the Data Scientist Specialization Capstone project from [Coursera](https://www.coursera.org). Below, we'll give code which downloads the data, loads it in, and performs basic exploratory data analysis. This will form the basis for a predictive model, which we intend to create a Shiny app for.
+This is a milestone report for the Data Scientist Specialization Capstone project from [Coursera](https://www.coursera.org). Below, we'll give code which downloads the data, loads it in, and performs basic exploratory data analysis. This will form the basis for a predictive model for text, which we intend to create a Shiny app for.
+
+Note that the markdown file is available on [GitHub](https://github.com/baldvine/Capstone/blob/master/MilestoneReport_BE.Rmd).
 
 # Download and load data
 
@@ -86,7 +90,7 @@ lapply(X = fileConnections, FUN = close)
 
 # Exploratory Data Analysis
 
-Let's do some basic inspection of the files and loaded objects. Note that the word count comes from package `tokenizers`:
+Let's do some basic inspection of the files and loaded objects. This is pretty basic, so we hide the code. Note that the word count comes from package `tokenizers`:
 ```{r basicFileAndObjectInfo, echo=FALSE, cache=TRUE, dependson="readData"}
 kable(data.frame(Type = names(fileNames.US),
                  FileName = unlist(fileNames.US),
@@ -140,8 +144,8 @@ rm(corpus); invisible(gc())
 ```
 
 
-We then follow the instructions in the [tm package vignette](https://cran.r-project.org/web/packages/tm/vignettes/tm.pdf) and create an object which `tm` can work with. Ok, let's do a lot of cleaning. Most are self-explanatory, but comments are provided:
-```{r echo=TRUE, cache=TRUE, dependson="corpusSubsetting"}
+We then follow the instructions in the [tm package vignette](https://cran.r-project.org/web/packages/tm/vignettes/tm.pdf) and create an object which `tm` can work with, followed by a lot of cleaning. Most are steps are self-explanatory, but comments are provided:
+```{r corpusCleaning, echo=TRUE, cache=TRUE, dependson=c("corpusSubsetting","readData")}
 # Here, VCorpus stands for "Volatile Corpus"
 # Also, using VectorSource, means that each vector entry is treated like a "document"
 subsetCorpus <- VCorpus(VectorSource(subsetCorpus))
@@ -165,40 +169,50 @@ subsetCorpus <- tm_map(subsetCorpus, removePunctuation)
 subsetCorpus <- tm_map(subsetCorpus, removeNumbers)
 # Strip of superfluous whitespace
 subsetCorpus <- tm_map(subsetCorpus, stripWhitespace)
-# 
+# Set to plain text
 subsetCorpus <- tm_map(subsetCorpus, PlainTextDocument)
 ```
+```{r echo=FALSE}
+invisible(gc())
+```
+Note that we have not done any word stemming so far, which might reduce memory usage. However, this is something I'll have to investigate further.
 
+Again, we follow the examples in the [tm package vignette](https://cran.r-project.org/web/packages/tm/vignettes/tm.pdf), and tokenize the data, and create n-grams for values 1, 2, and 3. Below, we show the code for 1-grams, but hide the nearly identical code for 2-grams and 3-grams.
 
-```{r ngrams}
+```{r ngrams, cache=TRUE, dependson=c("corpusCleaning","corpusSubsetting", "readData")}
 unigramTokenizer <- function(x) {
         NGramTokenizer(x, Weka_control(min = 1, max = 1))
 }
 unigrams <- 
     DocumentTermMatrix(subsetCorpus, 
                        control = list(tokenize = unigramTokenizer))
-
-# BigramTokenizer <- function(x) {
-#         NGramTokenizer(x, Weka_control(min = 2, max = 2))
-# }
-# bigrams <- DocumentTermMatrix(subsetCorpus, control = list(tokenize = BigramTokenizer))
-
-# TrigramTokenizer <- function(x) {
-#         NGramTokenizer(x, Weka_control(min = 3, max = 3))
-# }
-# trigrams <- DocumentTermMatrix(us_files, control = list(tokenize = TrigramTokenizer))
 ```
 
+```{r 2_3grams, echo=FALSE, cache=TRUE, dependson=c("corpusCleaning","corpusSubsetting", "readData")}
+BigramTokenizer <- function(x) {
+    NGramTokenizer(x, Weka_control(min = 2, max = 2))
+}
+bigrams <- DocumentTermMatrix(subsetCorpus, control = list(tokenize = BigramTokenizer))
 
+TrigramTokenizer <- function(x) {
+    NGramTokenizer(x, Weka_control(min = 3, max = 3))
+}
+trigrams <- DocumentTermMatrix(subsetCorpus, control = list(tokenize = TrigramTokenizer))
+```
+```{r echo=FALSE}
+invisible(gc())
+```
 
-```{r plotFreq}
+Then, we look at he n-grams with the highest frequency (found manually), an plot histograms. Again, we show the code for 1-grams, but hide the rest, which is nearly identical:
 
-# as.matrix is a massive memory hog!!!!!!!!!
-# unigrams_frequency <- sort(colSums(as.matrix(unigrams)), decreasing = TRUE)
-# unigrams_freq_df <- data.frame(Word = names(unigrams_frequency), Frequency = unigrams_frequency)
+```{r plotFreq_1gram, cache=TRUE, dependson="ngrams"}
+# Warningas.matrix is a massive memory hog!!!!!!!!!
+# unigrams.frequency <- sort(colSums(as.matrix(unigrams)), decreasing = TRUE)
+# unigrams.df <- data.frame(Word = names(unigrams.frequency), Frequency = unigrams.frequency)
 
 # Let's use the 'findFreqTerms()' function to filter out the low frequency words:
-unigrams.subset <- unigrams[,match(findFreqTerms(unigrams, 1000), 
+freqCutOff.unigram <- 1000
+unigrams.subset <- unigrams[,match(findFreqTerms(unigrams, freqCutOff.unigram), 
                                    unigrams$dimnames$Terms)]
 # Note that we simply found the column IDs of the those terms and subset.
 # Then, we compute the frequencies:
@@ -208,10 +222,72 @@ unigrams.df <- data.frame(Word = names(unigrams.freq),
 
 ggplot(data=unigrams.df, aes(x = reorder(Word, Frequency), y=Frequency)) + 
     geom_bar(stat = "identity") + 
-    theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 10),  
-          axis.text.y = element_text(size = 12)
+    theme(axis.text.x = element_text(angle = 90, hjust = 0.5, size = 10),  
+          axis.text.y = element_text(size = 12), 
+          plot.title = element_text(hjust = 0.5)
           ) + 
-    xlab("Word") +
+    xlab("Word") + ggtitle(paste0("1-grams with frequency greater than ", freqCutOff.unigram)) +
     coord_flip()
 ```
 
+
+
+```{r plotFreq_2gram, echo=FALSE, cache=TRUE, dependson="2_3grams"}
+
+# Let's use the 'findFreqTerms()' function to filter out the low frequency words:
+freqCutOff.bigram <- 75
+bigrams.subset <- bigrams[,match(findFreqTerms(bigrams, freqCutOff.bigram), 
+                                   bigrams$dimnames$Terms)]
+# Note that we simply found the column IDs of the those terms and subset.
+# Then, we compute the frequencies:
+bigrams.freq <- sort(colSums(as.matrix(bigrams.subset)), decreasing = TRUE)
+bigrams.df <- data.frame(Word = names(bigrams.freq), 
+                          Frequency = bigrams.freq)
+
+ggplot(data=bigrams.df, aes(x = reorder(Word, Frequency), y=Frequency)) + 
+    geom_bar(stat = "identity") + 
+    theme(axis.text.x = element_text(angle = 90, hjust = 0.5, size = 12),  
+          axis.text.y = element_text(size = 10), 
+          plot.title = element_text(hjust = 0.5)
+          ) + 
+    xlab("Word") + ggtitle(paste0("2-grams with frequency greater than ", freqCutOff.bigram)) +
+    coord_flip()
+```
+
+```{r plotFreq_3gram, echo=FALSE, cache=TRUE, dependson="2_3grams"}
+
+# Let's use the 'findFreqTerms()' function to filter out the low frequency words:
+freqCutOff.trigram <- 10
+trigrams.subset <- trigrams[,match(findFreqTerms(trigrams, freqCutOff.trigram), 
+                                   trigrams$dimnames$Terms)]
+# Note that we simply found the column IDs of the those terms and subset.
+# Then, we compute the frequencies:
+trigrams.freq <- sort(colSums(as.matrix(trigrams.subset)), decreasing = TRUE)
+trigrams.df <- data.frame(Word = names(trigrams.freq), 
+                          Frequency = trigrams.freq)
+
+ggplot(data=trigrams.df, aes(x = reorder(Word, Frequency), y=Frequency)) + 
+    geom_bar(stat = "identity") + 
+    theme(axis.text.x = element_text(angle = 90, hjust = 0.5, size = 10),  
+          axis.text.y = element_text(size = 12), 
+          plot.title = element_text(hjust = 0.5)
+          ) + 
+    xlab("Word") + ggtitle(paste0("3-grams with frequency greater than ", freqCutOff.trigram)) +
+    coord_flip()
+```
+
+
+# Next Steps
+
+Using these n-grams, we'll be able to create a predictive model, wrapped in a Shiny app. The basic idea is that a user will type words into a text input box, and suggestions made by looking up probabilities derived from the frequencies estimated above. Ideally, the prediction would be dynamic, e.g. initiated by pressing space bar. 
+
+Obviously, there's a lot more work to be done, such as (but not limited to):
+
+* further cleaning the dataset
+* generating n-grams from larger subsets (or merging results from multiple subsets)
+* frequency cut-offs
+* accuracy (linked to the above two items)
+* how to deal with unrecognizable words
+* stemming, and handling of typos
+* optimizing for speed
+* memory concerns
