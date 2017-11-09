@@ -1,7 +1,7 @@
 ---
-title: "Data Science Capstone Milestone Report"
+title: "Data Science Capstone - Model Builder"
 author: "Baldvin Einarsson"
-date: "10/31/2017"
+date: "11/8/2017"
 output:
   html_document:
     keep_md: yes
@@ -11,7 +11,7 @@ output:
 ```{r setup, include=FALSE}
 library(knitr)
 opts_knit$set(upload.fun = image_uri)
-opts_chunk$set(echo = TRUE, comment = "", cache.path = "./data/cache/milestoneReport/")
+opts_chunk$set(echo = TRUE, comment = "", cache.path = "./data/cache/modelBuilder/")
 
 library(ggplot2)
 library(magrittr)
@@ -26,40 +26,11 @@ library(RWeka)
 # install.views("NaturalLanguageProcessing")
 ```
 
-This is a milestone report for the Data Scientist Specialization Capstone project from [Coursera](https://www.coursera.org). Below, we'll give code which downloads the data, loads it in, and performs basic exploratory data analysis. This will form the basis for a predictive model for text, which we intend to create a Shiny app for.
 
-Note that the markdown file is available on [GitHub](https://github.com/baldvine/Capstone/blob/master/MilestoneReport_BE.Rmd).
-
-# Download and load data
+# Load Data
 
 The data comes from the following location:
-[https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip](https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip). Let's download it (if necessary!):
-
-```{r downloadData}
-
-fileURL <- "https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/"
-fileZip <- "./data/Coursera-SwiftKey.zip"
-
-if (!file.exists(fileZip)){
-    cat("Downloading. This may take a while...")
-    download.file(url=fileURL, destfile = fileZip, method='curl', quiet = TRUE)
-}
-
-```
-
-Next, we do some (manual) inspecting of the files in the `.zip` file. We see (again, manually), that all the zipped files are stored in a folder called `final/`. Let's unzip the files if that directory does not exist:
-
-```{r unzipFiles}
-# Get the file names of the files in the zip:
-zippedFiles <- unzip(zipfile = fileZip, list=TRUE)
-
-# Obtain the directory name:
-zipDir <- strsplit(zippedFiles$Name[1],split="/")[[1]][1]
-
-if (!dir.exists(paste0("./data/",zipDir))) {
-    unzip(zipfile = fileZip, exdir = "./data")
-}
-```
+[https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip](https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip), which we've downloaded.
 
 Now, in order to load into `R`, let's make our lives easier and create an object called `fileNames.US` which contains the file names. It's value is the following:
 ```{r setFileNamesEtc, echo=FALSE}
@@ -81,10 +52,10 @@ names(fileNames.US) <- names(fileNameSuffix)
 paste(names(fileNames.US), unlist(fileNames.US), sep = ": ", collapse = "\n") %>% cat
 ```
 
-We are now in a position to read in the files:
+We are now in a position to read in the files. Note that by typing `file` in a terminal, followed by the file name, the file encoding was listed as UTF-8.
 ```{r readData, message=FALSE, results='hide', cache=TRUE}
 fileConnections <- lapply(X = fileNames.US, FUN = file)
-corpus <- lapply(X = fileConnections, FUN = readLines, skipNul = TRUE, encoding = "Latin-1")
+corpus <- lapply(X = fileConnections, FUN = readLines, skipNul = TRUE, encoding = "UTF-8")
 lapply(X = fileConnections, FUN = close)
 ```
 
@@ -124,6 +95,7 @@ We want to clean the data bit, such as
 
 * change to lower case
 * remove Internet links
+* remove non-ascii characters
 * remove double entries
 * remove superfluous whitespace
 * remove punctuation
@@ -148,56 +120,69 @@ We then follow the instructions in the [tm package vignette](https://cran.r-proj
 ```{r corpusCleaning, echo=TRUE, cache=TRUE, dependson=c("corpusSubsetting","readData")}
 # Here, VCorpus stands for "Volatile Corpus"
 # Also, using VectorSource, means that each vector entry is treated like a "document"
-subsetCorpus <- VCorpus(VectorSource(subsetCorpus))
+myCorpus <- VCorpus(VectorSource(subsetCorpus))
 
 # Function to remove patterns
 toRemove <- content_transformer(function(x, pattern) gsub(pattern, " ", x))
-
+toRemove.empty <- content_transformer(function(x, pattern) gsub(pattern, "", x))
+toChange <- content_transformer(function(x, pattern, replacement) gsub(pattern, replacement, x))
+toASCII <- content_transformer(function(x) iconv(x, "", "ASCII", "byte"))
 # OK, so here we go:
 
+# Set to ASCII:
+myCorpus <- tm_map(myCorpus, toASCII)
+# Remove troublesome non-ASCII:
+myCorpus <- tm_map(myCorpus, toRemove.empty, "<.{2}>")
 # Remove ftp or http links:
-subsetCorpus <- tm_map(subsetCorpus, toRemove, "(f|ht)tp(s?)://(.*)[.][a-z]+")
+myCorpus <- tm_map(myCorpus, toRemove, "(f|ht)tp(s?)://(.*)[.][a-z]+")
 # Remove twitter handles (i.e. anything which has @ symbol followed by non-blank spaces:
-subsetCorpus <- tm_map(subsetCorpus, toRemove, "@[^\\s]+")
+myCorpus <- tm_map(myCorpus, toRemove, "@[^\\s]+")
 # Set to lower case
-subsetCorpus <- tm_map(subsetCorpus, tolower)
-# Remove so called "stop words". Type stopwords("en") to see which they are
-subsetCorpus <- tm_map(subsetCorpus, removeWords, stopwords("en"))
+myCorpus <- tm_map(myCorpus, tolower)
 # Remove punctuation
-subsetCorpus <- tm_map(subsetCorpus, removePunctuation)
+myCorpus <- tm_map(myCorpus, removePunctuation)
 # Remove numbers
-subsetCorpus <- tm_map(subsetCorpus, removeNumbers)
+myCorpus <- tm_map(myCorpus, removeNumbers)
 # Strip of superfluous whitespace
-subsetCorpus <- tm_map(subsetCorpus, stripWhitespace)
+myCorpus <- tm_map(myCorpus, stripWhitespace)
 # Set to plain text
-subsetCorpus <- tm_map(subsetCorpus, PlainTextDocument)
+myCorpus <- tm_map(myCorpus, PlainTextDocument)
 ```
+
+Finally, let's remove the so called "stop words", but save into a new object called `myCorpus.noStop`. This object we will save for the trigrams and higher n-grams, because phrases of that length probably contain a stop word.:
+```{r}
+# Remove so called "stop words". Type stopwords("en") to see which they are
+myCorpus.noStop <- tm_map(myCorpus, removeWords, stopwords("en"))
+```
+Let's inspect which words we just removed:
+```{r showStopWords}
+stopwords("en")
+```
+
 ```{r echo=FALSE}
 invisible(gc())
 ```
 Note that we have not done any word stemming so far, which might reduce memory usage. However, this is something I'll have to investigate further.
 
-Again, we follow the examples in the [tm package vignette](https://cran.r-project.org/web/packages/tm/vignettes/tm.pdf), and tokenize the data, and create n-grams for values 1, 2, and 3. Below, we show the code for 1-grams, but hide the nearly identical code for 2-grams and 3-grams.
+Again, we follow the examples in the [tm package vignette](https://cran.r-project.org/web/packages/tm/vignettes/tm.pdf), and tokenize the data, and create n-grams for values 1, 2, and 3. 
 
 ```{r ngrams, cache=TRUE, dependson=c("corpusCleaning","corpusSubsetting", "readData")}
 unigramTokenizer <- function(x) {
         NGramTokenizer(x, Weka_control(min = 1, max = 1))
 }
-unigrams <- 
-    DocumentTermMatrix(subsetCorpus, 
-                       control = list(tokenize = unigramTokenizer))
-```
-
-```{r 2_3grams, echo=FALSE, cache=TRUE, dependson=c("corpusCleaning","corpusSubsetting", "readData")}
 BigramTokenizer <- function(x) {
     NGramTokenizer(x, Weka_control(min = 2, max = 2))
 }
-bigrams <- DocumentTermMatrix(subsetCorpus, control = list(tokenize = BigramTokenizer))
-
 TrigramTokenizer <- function(x) {
     NGramTokenizer(x, Weka_control(min = 3, max = 3))
 }
-trigrams <- DocumentTermMatrix(subsetCorpus, control = list(tokenize = TrigramTokenizer))
+
+unigrams <- 
+    DocumentTermMatrix(myCorpus.noStop, 
+                       control = list(tokenize = unigramTokenizer))
+bigrams <- DocumentTermMatrix(myCorpus.noStop, control = list(tokenize = BigramTokenizer))
+
+trigrams <- DocumentTermMatrix(myCorpus, control = list(tokenize = TrigramTokenizer))
 ```
 ```{r echo=FALSE}
 invisible(gc())
@@ -205,13 +190,26 @@ invisible(gc())
 
 Then, we look at he n-grams with the highest frequency (found manually), an plot histograms. Again, we show the code for 1-grams, but hide the rest, which is nearly identical:
 
+```{r}
+getUnigramsFreq <- function(termNum) {
+    sum(unigrams[,termNum])
+}
+
+tmp <- data.frame(Term = unigrams$dimnames$Terms[1:5000],
+                  Frequency = sapply(X = 1:5000,#dim(unigrams)[2], 
+                                     FUN = getUnigramsFreq)
+                  )
+
+```
+
+
 ```{r plotFreq_1gram, cache=TRUE, dependson="ngrams"}
 # Warningas.matrix is a massive memory hog!!!!!!!!!
 # unigrams.frequency <- sort(colSums(as.matrix(unigrams)), decreasing = TRUE)
 # unigrams.df <- data.frame(Word = names(unigrams.frequency), Frequency = unigrams.frequency)
 
 # Let's use the 'findFreqTerms()' function to filter out the low frequency words:
-freqCutOff.unigram <- 1000
+freqCutOff.unigram <- 1200
 unigrams.subset <- unigrams[,match(findFreqTerms(unigrams, freqCutOff.unigram), 
                                    unigrams$dimnames$Terms)]
 # Note that we simply found the column IDs of the those terms and subset.
@@ -232,7 +230,7 @@ ggplot(data=unigrams.df, aes(x = reorder(Word, Frequency), y=Frequency)) +
 
 
 
-```{r plotFreq_2gram, echo=FALSE, cache=TRUE, dependson="2_3grams"}
+```{r plotFreq_2gram, echo=FALSE, cache=TRUE, dependson="ngrams"}
 
 # Let's use the 'findFreqTerms()' function to filter out the low frequency words:
 freqCutOff.bigram <- 75
@@ -254,10 +252,10 @@ ggplot(data=bigrams.df, aes(x = reorder(Word, Frequency), y=Frequency)) +
     coord_flip()
 ```
 
-```{r plotFreq_3gram, echo=FALSE, cache=TRUE, dependson="2_3grams"}
+```{r plotFreq_3gram, echo=FALSE, cache=TRUE, dependson="ngrams"}
 
 # Let's use the 'findFreqTerms()' function to filter out the low frequency words:
-freqCutOff.trigram <- 10
+freqCutOff.trigram <- 100
 trigrams.subset <- trigrams[,match(findFreqTerms(trigrams, freqCutOff.trigram), 
                                    trigrams$dimnames$Terms)]
 # Note that we simply found the column IDs of the those terms and subset.
@@ -291,3 +289,33 @@ Obviously, there's a lot more work to be done, such as (but not limited to):
 * stemming, and handling of typos
 * optimizing for speed
 * memory concerns
+
+
+# Model
+
+Ok, let's use the n-grams above.
+
+```{r}
+myText <- c("^case of ", 
+            "^mean the ", 
+            "^me the ", 
+            "^but the ",
+            "^at the ",
+            "^on my ",
+            "^quite some ", 
+            "^his little ",
+            "^during the ",
+            "^must be ")[10]
+
+# Remove leading and trailing spaces
+# send through the same routine as for the corpora
+# Find match in bi-grams and tri-grams. Estimate 
+
+trigrams.test <- trigrams[,grep(myText,trigrams$dimnames$Terms)]
+trigrams.freq <- sort(colSums(as.matrix(trigrams.test)), decreasing = TRUE)
+trigrams.df <- data.frame(Word = names(trigrams.freq), 
+                          Frequency = trigrams.freq)
+head(trigrams.df)
+
+```
+
