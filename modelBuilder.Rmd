@@ -296,16 +296,28 @@ Obviously, there's a lot more work to be done, such as (but not limited to):
 Ok, let's use the n-grams above.
 
 ```{r}
-myText <- c("^case of ", 
-            "^mean the ", 
-            "^me the ", 
-            "^but the ",
-            "^at the ",
-            "^on my ",
-            "^quite some ", 
-            "^his little ",
-            "^during the ",
-            "^must be ")[10]
+myText <- c("The guy in front of me just bought a pound of bacon, a bouquet, and a case of", 
+            "You're the reason why I smile everyday. Can you follow me please? It would mean the", 
+            "Hey sunshine, can you follow me and make me the", 
+            "Very early observations on the Bills game: Offense still struggling but the",
+            "Go on a romantic date at the",
+            "Well I'm pretty sure my granny has some old bagpipes in her garage I'll dust them off and be on my",
+            "Ohhhhh #PointBreak is on tomorrow. Love that film and haven't seen it in quite some", 
+            "After the ice bucket challenge Louis will push his long wet hair out of his eyes with his little",
+            "Be grateful for the good times and keep the faith during the",
+            "If this isn't the cutest thing you've ever seen, then you must be")
+
+potentialAnswers <- 
+    list(c("soda","beer","pretzels","cheese"),
+         c("most","universe","world","best"),
+         c("happiest","bluest","smelliest","saddest"),
+         c("defense","referees","players","crowd"),
+         c("movies","beach","grocery","mall"),
+         c("way","phone","horse","motorcycle"),
+         c("weeks","thing","years","time"),
+         c("fingers","ears","eyes","toes"),
+         c("hard","bad","sad","worse"),
+         c("asleep","insensitive","callous","insane"))
 
 # Remove leading and trailing spaces
 # send through the same routine as for the corpora
