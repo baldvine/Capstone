@@ -100,13 +100,14 @@ We want to clean the data bit, such as
 * remove superfluous whitespace
 * remove punctuation
 * remove numbers
+* remove profanity!
 
 In order to do this, let's have a look at the [Natural Langue Processing Task View](https://cran.r-project.org/web/views/NaturalLanguageProcessing.html). There are plenty of packages to choose from, but for now let's start with [tm](https://cran.r-project.org/web/packages/tm/index.html).
 
-In order to get things done faster, we pick out 1 % of entries from each type of data sources:
+In order to get things done faster, we pick out 2 % of entries from each type of data sources:
 ```{r corpusSubsetting, cache=TRUE, dependson="readData"}
 set.seed(42)
-useRatio <- 0.01
+useRatio <- 0.02
 subsetCorpus <- 
     c(sample(corpus$Blogs, size = useRatio*length(corpus$Blogs), replace = FALSE),
       sample(corpus$News, size = useRatio*length(corpus$News), replace = FALSE),
@@ -115,12 +116,15 @@ subsetCorpus <-
 rm(corpus); invisible(gc())
 ```
 
+Before we get started, let's download a list of profanity words commonly used. Here we take the list form [this website](https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words/blob/master/en). Enter at your on risk.
+
 
 We then follow the instructions in the [tm package vignette](https://cran.r-project.org/web/packages/tm/vignettes/tm.pdf) and create an object which `tm` can work with, followed by a lot of cleaning. Most are steps are self-explanatory, but comments are provided:
 ```{r corpusCleaning, echo=TRUE, cache=TRUE, dependson=c("corpusSubsetting","readData")}
 # Here, VCorpus stands for "Volatile Corpus"
 # Also, using VectorSource, means that each vector entry is treated like a "document"
 myCorpus <- VCorpus(VectorSource(subsetCorpus))
+rm(subsetCorpus); invisible(gc())
 
 # Function to remove patterns
 toRemove <- content_transformer(function(x, pattern) gsub(pattern, " ", x))
@@ -139,22 +143,22 @@ myCorpus <- tm_map(myCorpus, toRemove, "(f|ht)tp(s?)://(.*)[.][a-z]+")
 myCorpus <- tm_map(myCorpus, toRemove, "@[^\\s]+")
 # Set to lower case
 myCorpus <- tm_map(myCorpus, tolower)
+myCorpus.noStop <- tm_map(myCorpus, removeWords, stopwords("en"))
 # Remove punctuation
 myCorpus <- tm_map(myCorpus, removePunctuation)
+myCorpus.noStop <- tm_map(myCorpus.noStop, removePunctuation)
 # Remove numbers
 myCorpus <- tm_map(myCorpus, removeNumbers)
+myCorpus.noStop <- tm_map(myCorpus.noStop, removeNumbers)
 # Strip of superfluous whitespace
 myCorpus <- tm_map(myCorpus, stripWhitespace)
+myCorpus.noStop <- tm_map(myCorpus.noStop, stripWhitespace)
 # Set to plain text
 myCorpus <- tm_map(myCorpus, PlainTextDocument)
+myCorpus.noStop <- tm_map(myCorpus.noStop, PlainTextDocument)
 ```
 
-Finally, let's remove the so called "stop words", but save into a new object called `myCorpus.noStop`. This object we will save for the trigrams and higher n-grams, because phrases of that length probably contain a stop word.:
-```{r}
-# Remove so called "stop words". Type stopwords("en") to see which they are
-myCorpus.noStop <- tm_map(myCorpus, removeWords, stopwords("en"))
-```
-Let's inspect which words we just removed:
+Note that we removed the so called "stop words", but saved into a new object called `myCorpus.noStop`. This object we will save for the trigrams and higher n-grams, because phrases of that length probably contain a stop word. Let's inspect which words we just removed:
 ```{r showStopWords}
 stopwords("en")
 ```
@@ -176,15 +180,19 @@ BigramTokenizer <- function(x) {
 TrigramTokenizer <- function(x) {
     NGramTokenizer(x, Weka_control(min = 3, max = 3))
 }
+QuadgramTokenizer <- function(x) {
+    NGramTokenizer(x, Weka_control(min = 4, max = 4))
+}
 
 unigrams <- 
     DocumentTermMatrix(myCorpus.noStop, 
                        control = list(tokenize = unigramTokenizer))
 bigrams <- DocumentTermMatrix(myCorpus.noStop, control = list(tokenize = BigramTokenizer))
-
 trigrams <- DocumentTermMatrix(myCorpus, control = list(tokenize = TrigramTokenizer))
+quadgrams <- DocumentTermMatrix(myCorpus, control = list(tokenize = QuadgramTokenizer))
 ```
 ```{r echo=FALSE}
+rm(myCorpus); rm(myCorpus.noStop)
 invisible(gc())
 ```
 
@@ -195,10 +203,15 @@ getUnigramsFreq <- function(termNum) {
     sum(unigrams[,termNum])
 }
 
-tmp <- data.frame(Term = unigrams$dimnames$Terms[1:5000],
-                  Frequency = sapply(X = 1:5000,#dim(unigrams)[2], 
-                                     FUN = getUnigramsFreq)
+tmp <- data.frame(Term = unigrams$dimnames$Terms,
+                  Frequency = sapply(X = 1:dim(unigrams)[2], 
+                                     FUN = getUnigramsFreq, 
+                                     simplify = TRUE, 
+                                     USE.NAMES = FALSE)
                   )
+
+tmp <- tmp[order(tmp$Frequency, decreasing = TRUE), ]
+row.names(tmp) <- 1:nrow(tmp)
 
 ```
 
@@ -209,7 +222,7 @@ tmp <- data.frame(Term = unigrams$dimnames$Terms[1:5000],
 # unigrams.df <- data.frame(Word = names(unigrams.frequency), Frequency = unigrams.frequency)
 
 # Let's use the 'findFreqTerms()' function to filter out the low frequency words:
-freqCutOff.unigram <- 1200
+freqCutOff.unigram <- 2400
 unigrams.subset <- unigrams[,match(findFreqTerms(unigrams, freqCutOff.unigram), 
                                    unigrams$dimnames$Terms)]
 # Note that we simply found the column IDs of the those terms and subset.
@@ -233,7 +246,7 @@ ggplot(data=unigrams.df, aes(x = reorder(Word, Frequency), y=Frequency)) +
 ```{r plotFreq_2gram, echo=FALSE, cache=TRUE, dependson="ngrams"}
 
 # Let's use the 'findFreqTerms()' function to filter out the low frequency words:
-freqCutOff.bigram <- 75
+freqCutOff.bigram <- 150
 bigrams.subset <- bigrams[,match(findFreqTerms(bigrams, freqCutOff.bigram), 
                                    bigrams$dimnames$Terms)]
 # Note that we simply found the column IDs of the those terms and subset.
@@ -255,7 +268,7 @@ ggplot(data=bigrams.df, aes(x = reorder(Word, Frequency), y=Frequency)) +
 ```{r plotFreq_3gram, echo=FALSE, cache=TRUE, dependson="ngrams"}
 
 # Let's use the 'findFreqTerms()' function to filter out the low frequency words:
-freqCutOff.trigram <- 100
+freqCutOff.trigram <- 200
 trigrams.subset <- trigrams[,match(findFreqTerms(trigrams, freqCutOff.trigram), 
                                    trigrams$dimnames$Terms)]
 # Note that we simply found the column IDs of the those terms and subset.
@@ -308,22 +321,22 @@ myText <- c("The guy in front of me just bought a pound of bacon, a bouquet, and
             "If this isn't the cutest thing you've ever seen, then you must be")
 
 potentialAnswers <- 
-    list(c("soda","beer","pretzels","cheese"),
-         c("most","universe","world","best"),
-         c("happiest","bluest","smelliest","saddest"),
-         c("defense","referees","players","crowd"),
-         c("movies","beach","grocery","mall"),
-         c("way","phone","horse","motorcycle"),
-         c("weeks","thing","years","time"),
-         c("fingers","ears","eyes","toes"),
-         c("hard","bad","sad","worse"),
-         c("asleep","insensitive","callous","insane"))
+    list(c("soda","beer","pretzels","cheese"), # B: soda X, pretzels X, 
+         c("most","universe","world","best"), # B: world
+         c("happiest","bluest","smelliest","saddest"), # happiest
+         c("defense","referees","players","crowd"), # defense
+         c("movies","beach","grocery","mall"), # movies X, beach
+         c("way","phone","horse","motorcycle"), # B: way
+         c("weeks","thing","years","time"), # B: time
+         c("fingers","ears","eyes","toes"), # B: fingers
+         c("hard","bad","sad","worse"), # bad
+         c("asleep","insensitive","callous","insane")) # callous X, 
 
 # Remove leading and trailing spaces
 # send through the same routine as for the corpora
 # Find match in bi-grams and tri-grams. Estimate 
 
-trigrams.test <- trigrams[,grep(myText,trigrams$dimnames$Terms)]
+trigrams.test <- trigrams[,grep("^case of",trigrams$dimnames$Terms)]
 trigrams.freq <- sort(colSums(as.matrix(trigrams.test)), decreasing = TRUE)
 trigrams.df <- data.frame(Word = names(trigrams.freq), 
                           Frequency = trigrams.freq)
