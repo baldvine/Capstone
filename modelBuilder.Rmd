@@ -59,37 +59,7 @@ corpus <- lapply(X = fileConnections, FUN = readLines, skipNul = TRUE, encoding 
 lapply(X = fileConnections, FUN = close)
 ```
 
-# Exploratory Data Analysis
-
-Let's do some basic inspection of the files and loaded objects. This is pretty basic, so we hide the code. Note that the word count comes from package `tokenizers`:
-```{r basicFileAndObjectInfo, echo=FALSE, cache=TRUE, dependson="readData"}
-kable(data.frame(Type = names(fileNames.US),
-                 FileName = unlist(fileNames.US),
-                 FileSize = (fileNames.US %>% 
-                                 sapply(., FUN = file.size) %>% 
-                                 '/'(.,1024) %>% 
-                                 format(big.mark = ",", digits = 4, nsmall = 0)),
-                 ObjectSize = (corpus %>% 
-                                 sapply(., FUN = object.size) %>% 
-                                 '/'(.,1024) %>% 
-                                 format(big.mark = ",", digits = 4, nsmall = 0)),
-                 LineCount = format(sapply(corpus, length),
-                                    big.mark = ",", nsmall = 0, digits = 4),
-                 WordCount =  sapply(X = corpus, 
-                                     FUN = function(x){
-                                         tokenize_words(x, lowercase = TRUE) %>%
-                                             unlist %>%
-                                             unique %>%
-                                             length %>%
-                                             format(big.mark = ",", digits = 4, nsmall = 0)
-                                         })
-                 ),
-      row.names = FALSE,
-      col.names = c("File type", "File name","File Size (MB)", "Object Size (MB)", 
-                    "Line count", "Word (from 'tokenizers')"), 
-      align = c("l","l", "r","r","r","r")
-      )
-```
+# Data Scrubbing
 
 We want to clean the data bit, such as
 
@@ -104,10 +74,10 @@ We want to clean the data bit, such as
 
 In order to do this, let's have a look at the [Natural Langue Processing Task View](https://cran.r-project.org/web/views/NaturalLanguageProcessing.html). There are plenty of packages to choose from, but for now let's start with [tm](https://cran.r-project.org/web/packages/tm/index.html).
 
-In order to get things done faster, we pick out 2 % of entries from each type of data sources:
+In order to get things done faster, we pick out 5 % of entries from each type of data sources:
 ```{r corpusSubsetting, cache=TRUE, dependson="readData"}
 set.seed(42)
-useRatio <- 0.02
+useRatio <- 0.05
 subsetCorpus <- 
     c(sample(corpus$Blogs, size = useRatio*length(corpus$Blogs), replace = FALSE),
       sample(corpus$News, size = useRatio*length(corpus$News), replace = FALSE),
@@ -124,13 +94,14 @@ We then follow the instructions in the [tm package vignette](https://cran.r-proj
 # Here, VCorpus stands for "Volatile Corpus"
 # Also, using VectorSource, means that each vector entry is treated like a "document"
 myCorpus <- VCorpus(VectorSource(subsetCorpus))
-rm(subsetCorpus); invisible(gc())
+#rm(subsetCorpus); invisible(gc())
 
 # Function to remove patterns
 toRemove <- content_transformer(function(x, pattern) gsub(pattern, " ", x))
 toRemove.empty <- content_transformer(function(x, pattern) gsub(pattern, "", x))
 toChange <- content_transformer(function(x, pattern, replacement) gsub(pattern, replacement, x))
 toASCII <- content_transformer(function(x) iconv(x, "", "ASCII", "byte"))
+
 # OK, so here we go:
 
 # Set to ASCII:
@@ -187,7 +158,8 @@ QuadgramTokenizer <- function(x) {
 unigrams <- 
     DocumentTermMatrix(myCorpus.noStop, 
                        control = list(tokenize = unigramTokenizer))
-bigrams <- DocumentTermMatrix(myCorpus.noStop, control = list(tokenize = BigramTokenizer))
+bigrams <- DocumentTermMatrix(myCorpus, control = list(tokenize = BigramTokenizer))
+bigrams.noStop <- DocumentTermMatrix(myCorpus.noStop, control = list(tokenize = BigramTokenizer))
 trigrams <- DocumentTermMatrix(myCorpus, control = list(tokenize = TrigramTokenizer))
 quadgrams <- DocumentTermMatrix(myCorpus, control = list(tokenize = QuadgramTokenizer))
 ```
@@ -196,97 +168,153 @@ rm(myCorpus); rm(myCorpus.noStop)
 invisible(gc())
 ```
 
-Then, we look at he n-grams with the highest frequency (found manually), an plot histograms. Again, we show the code for 1-grams, but hide the rest, which is nearly identical:
+
+```{r include=FALSE}
+# These are some of my improvisations
+
+# Way to slow and memory intensive:
+# getUnigramsFreq <- function(termNum) {
+#     sum(unigrams[,termNum])
+# }
+# tmp <- data.frame(Term = unigrams$dimnames$Terms[1:1000],
+#                   Frequency = sapply(X = 1:1000,#dim(unigrams)[2], 
+#                                      FUN = getUnigramsFreq, 
+#                                      simplify = TRUE, 
+#                                      USE.NAMES = FALSE)
+#                   )
+
+# Works:
+# tmp <- data.table::data.table(docIndex = unigrams$i,
+#                               termIndex = unigrams$j,
+#                               termFrequencyInDoc = unigrams$v)
+# tmp[, Frequency := sum(termFrequencyInDoc), 
+#     by = termIndex][order(Frequency, decreasing = TRUE)]
+# tmp[, .(termFrequency = sum(termFrequencyInDoc)), 
+#     by = termIndex][order(termFrequency, decreasing = TRUE)]
+
+# Even better:
+# tmp <- data.table::data.table(term = unigrams$dimnames$Terms[unigrams$j],
+#                               termFrequencyInDoc = unigrams$v)
+# tmp[, Frequency := sum(termFrequencyInDoc), 
+#     by = term][order(Frequency, decreasing = TRUE)]
+# tmp[, .(termFrequency = sum(termFrequencyInDoc)), 
+#     by = term][order(termFrequency, decreasing = TRUE)]
+```
+
+Now, let's extract the unigrams into a little more user friendly format:
+
+```{r createDFs, cache=TRUE, dependson=c("ngrams","corpusCleaning","corpusSubsetting", "readData")}
+
+unigrams.dt <- 
+    data.table(Term = unigrams$dimnames$Terms[unigrams$j],
+               termFrequencyInDoc = unigrams$v)[, .(Frequency = sum(termFrequencyInDoc)), 
+                                                by = Term][order(Frequency, decreasing = TRUE)]
+
+bigrams.dt <- 
+    data.table(Term = bigrams$dimnames$Terms[bigrams$j],
+               termFrequencyInDoc = bigrams$v)[, .(Frequency = sum(termFrequencyInDoc)), 
+                                                by = Term][order(Frequency, decreasing = TRUE)]
+bigrams.noStop.dt <- 
+    data.table(Term = bigrams.noStop$dimnames$Terms[bigrams.noStop$j],
+               termFrequencyInDoc = bigrams.noStop$v)[, .(Frequency = sum(termFrequencyInDoc)), 
+                                                      by = Term][order(Frequency, decreasing = TRUE)]
+
+trigrams.dt <- 
+    data.table(Term = trigrams$dimnames$Terms[trigrams$j],
+               termFrequencyInDoc = trigrams$v)[, .(Frequency = sum(termFrequencyInDoc)), 
+                                                by = Term][order(Frequency, decreasing = TRUE)]
+
+quadgrams.dt <- 
+    data.table(Term = quadgrams$dimnames$Terms[quadgrams$j],
+               termFrequencyInDoc = quadgrams$v)[, .(Frequency = sum(termFrequencyInDoc)), 
+                                                by = Term][order(Frequency, decreasing = TRUE)]
+
+```
+
+
+Ok, let's inspect the 1-grams and see how many words are needed to 
 
 ```{r}
-getUnigramsFreq <- function(termNum) {
-    sum(unigrams[,termNum])
-}
+Proportion <- cumsum(unigrams.dt$Frequency)/sum(unigrams.dt$Frequency)
 
-tmp <- data.frame(Term = unigrams$dimnames$Terms,
-                  Frequency = sapply(X = 1:dim(unigrams)[2], 
-                                     FUN = getUnigramsFreq, 
-                                     simplify = TRUE, 
-                                     USE.NAMES = FALSE)
-                  )
+plot(Proportion)
 
-tmp <- tmp[order(tmp$Frequency, decreasing = TRUE), ]
-row.names(tmp) <- 1:nrow(tmp)
-
+which.max(Proportion > 0.95)/length(Proportion)
 ```
 
 
-```{r plotFreq_1gram, cache=TRUE, dependson="ngrams"}
-# Warningas.matrix is a massive memory hog!!!!!!!!!
-# unigrams.frequency <- sort(colSums(as.matrix(unigrams)), decreasing = TRUE)
-# unigrams.df <- data.frame(Word = names(unigrams.frequency), Frequency = unigrams.frequency)
+Then, we look at he top 25 or so n-grams, and plot histograms. Again, we show the code for 1-grams, but hide the rest, which is nearly identical:
 
-# Let's use the 'findFreqTerms()' function to filter out the low frequency words:
-freqCutOff.unigram <- 2400
-unigrams.subset <- unigrams[,match(findFreqTerms(unigrams, freqCutOff.unigram), 
-                                   unigrams$dimnames$Terms)]
-# Note that we simply found the column IDs of the those terms and subset.
-# Then, we compute the frequencies:
-unigrams.freq <- sort(colSums(as.matrix(unigrams.subset)), decreasing = TRUE)
-unigrams.df <- data.frame(Word = names(unigrams.freq), 
-                          Frequency = unigrams.freq)
 
-ggplot(data=unigrams.df, aes(x = reorder(Word, Frequency), y=Frequency)) + 
+
+```{r plotFreq_1gram, cache=TRUE, dependson=c("createDFs","ngrams","corpusCleaning","corpusSubsetting", "readData")}
+
+ggplot(data=head(unigrams.dt, n = 25), 
+       aes(x = reorder(Term, Frequency), y=Frequency)) + 
     geom_bar(stat = "identity") + 
     theme(axis.text.x = element_text(angle = 90, hjust = 0.5, size = 10),  
           axis.text.y = element_text(size = 12), 
           plot.title = element_text(hjust = 0.5)
           ) + 
-    xlab("Word") + ggtitle(paste0("1-grams with frequency greater than ", freqCutOff.unigram)) +
+    xlab("Word") + ggtitle("Top 30 unigrams in frequency") +
     coord_flip()
 ```
 
 
 
-```{r plotFreq_2gram, echo=FALSE, cache=TRUE, dependson="ngrams"}
 
-# Let's use the 'findFreqTerms()' function to filter out the low frequency words:
-freqCutOff.bigram <- 150
-bigrams.subset <- bigrams[,match(findFreqTerms(bigrams, freqCutOff.bigram), 
-                                   bigrams$dimnames$Terms)]
-# Note that we simply found the column IDs of the those terms and subset.
-# Then, we compute the frequencies:
-bigrams.freq <- sort(colSums(as.matrix(bigrams.subset)), decreasing = TRUE)
-bigrams.df <- data.frame(Word = names(bigrams.freq), 
-                          Frequency = bigrams.freq)
+```{r plotFreq_2gram, echo=FALSE, cache=TRUE, dependson=c("createDFs","ngrams","corpusCleaning","corpusSubsetting", "readData")}
 
-ggplot(data=bigrams.df, aes(x = reorder(Word, Frequency), y=Frequency)) + 
-    geom_bar(stat = "identity") + 
-    theme(axis.text.x = element_text(angle = 90, hjust = 0.5, size = 12),  
-          axis.text.y = element_text(size = 10), 
-          plot.title = element_text(hjust = 0.5)
-          ) + 
-    xlab("Word") + ggtitle(paste0("2-grams with frequency greater than ", freqCutOff.bigram)) +
-    coord_flip()
-```
-
-```{r plotFreq_3gram, echo=FALSE, cache=TRUE, dependson="ngrams"}
-
-# Let's use the 'findFreqTerms()' function to filter out the low frequency words:
-freqCutOff.trigram <- 200
-trigrams.subset <- trigrams[,match(findFreqTerms(trigrams, freqCutOff.trigram), 
-                                   trigrams$dimnames$Terms)]
-# Note that we simply found the column IDs of the those terms and subset.
-# Then, we compute the frequencies:
-trigrams.freq <- sort(colSums(as.matrix(trigrams.subset)), decreasing = TRUE)
-trigrams.df <- data.frame(Word = names(trigrams.freq), 
-                          Frequency = trigrams.freq)
-
-ggplot(data=trigrams.df, aes(x = reorder(Word, Frequency), y=Frequency)) + 
+ggplot(data=head(bigrams.dt, n = 25), 
+       aes(x = reorder(Term, Frequency), y=Frequency)) + 
     geom_bar(stat = "identity") + 
     theme(axis.text.x = element_text(angle = 90, hjust = 0.5, size = 10),  
           axis.text.y = element_text(size = 12), 
           plot.title = element_text(hjust = 0.5)
           ) + 
-    xlab("Word") + ggtitle(paste0("3-grams with frequency greater than ", freqCutOff.trigram)) +
+    xlab("Word") + ggtitle("Top 25 bigrams in frequency") +
     coord_flip()
 ```
 
+```{r plotFreq_2gram, echo=FALSE, cache=TRUE, dependson=c("createDFs","ngrams","corpusCleaning","corpusSubsetting", "readData")}
+
+ggplot(data=head(bigrams.noStop.dt, n = 25), 
+       aes(x = reorder(Term, Frequency), y=Frequency)) + 
+    geom_bar(stat = "identity") + 
+    theme(axis.text.x = element_text(angle = 90, hjust = 0.5, size = 10),  
+          axis.text.y = element_text(size = 12), 
+          plot.title = element_text(hjust = 0.5)
+          ) + 
+    xlab("Word") + ggtitle("Top 25 bigrams (no stop words) in frequency") +
+    coord_flip()
+```
+
+```{r plotFreq_3gram, cache=TRUE, dependson=c("createDFs","ngrams","corpusCleaning","corpusSubsetting", "readData")}
+
+ggplot(data=head(trigrams.dt, n = 25), 
+       aes(x = reorder(Term, Frequency), y=Frequency)) + 
+    geom_bar(stat = "identity") + 
+    theme(axis.text.x = element_text(angle = 90, hjust = 0.5, size = 10),  
+          axis.text.y = element_text(size = 12), 
+          plot.title = element_text(hjust = 0.5)
+          ) + 
+    xlab("Word") + ggtitle("Top 30 trigrams in frequency") +
+    coord_flip()
+```
+
+
+```{r plotFreq_4gram, cache=TRUE, dependson=c("createDFs","ngrams","corpusCleaning","corpusSubsetting", "readData")}
+
+ggplot(data=head(quadgrams.dt, n = 30), 
+       aes(x = reorder(Term, Frequency), y=Frequency)) + 
+    geom_bar(stat = "identity") + 
+    theme(axis.text.x = element_text(angle = 90, hjust = 0.5, size = 10),  
+          axis.text.y = element_text(size = 12), 
+          plot.title = element_text(hjust = 0.5)
+          ) + 
+    xlab("Word") + ggtitle("Top 30 quadgrams in frequency") +
+    coord_flip()
+```
 
 # Next Steps
 
@@ -308,7 +336,7 @@ Obviously, there's a lot more work to be done, such as (but not limited to):
 
 Ok, let's use the n-grams above.
 
-```{r}
+```{r inlude=FALSE}
 myText <- c("The guy in front of me just bought a pound of bacon, a bouquet, and a case of", 
             "You're the reason why I smile everyday. Can you follow me please? It would mean the", 
             "Hey sunshine, can you follow me and make me the", 
@@ -330,11 +358,29 @@ potentialAnswers <-
          c("weeks","thing","years","time"), # B: time
          c("fingers","ears","eyes","toes"), # B: fingers
          c("hard","bad","sad","worse"), # bad
-         c("asleep","insensitive","callous","insane")) # callous X, 
+         c("asleep","insensitive","callous","insane")) # callous X, insane
 
 # Remove leading and trailing spaces
 # send through the same routine as for the corpora
 # Find match in bi-grams and tri-grams. Estimate 
+
+# Assumes 
+getLastNWords <- function(text2extractWords, lastN){
+    # check if class is "character"
+    # check if only one element
+
+    # Remove leading and trailing whitespace
+    text2extractWords <- gsub(" +", " ", text2extractWords)
+    # Remove double or more spaces:
+    text2extractWords <- trimws(text2extractWords, "both")
+    wordSample <- unlist(strsplit(text2extractWords, " "))
+    wordSample[(length(wordSample)-lastN+1):length(wordSample)]
+}
+
+text2check <- getLastNWords(myText[1],4)
+
+quadgrams.dt[grep(text2check,Term)]
+trigrams.dt[grep(text2check,Term)]
 
 trigrams.test <- trigrams[,grep("^case of",trigrams$dimnames$Terms)]
 trigrams.freq <- sort(colSums(as.matrix(trigrams.test)), decreasing = TRUE)
