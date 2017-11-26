@@ -300,7 +300,7 @@ save(list = c("unigrams",
               "bigrams", "bigrams.noStop", 
               "trigrams", 
               "quadgrams"), 
-     file = "C:/BE/Coursera/Capstone/data/ngrams_quarter.RData")
+     file = "./data/ngrams_quarter.RData")
 ```
 
 
