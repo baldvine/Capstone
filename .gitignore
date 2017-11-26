@@ -9,3 +9,5 @@ MilestoneReport_BE_files/
 
 .DS_Store
 data__packages
+
+data/quiz*.*

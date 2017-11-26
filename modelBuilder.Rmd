@@ -15,6 +15,7 @@ opts_chunk$set(echo = TRUE, comment = "", cache.path = "./data/cache/modelBuilde
 
 library(ggplot2)
 library(magrittr)
+library(data.table)
 library(tokenizers)
 library(tm)
 library(RWeka)
@@ -59,6 +60,13 @@ corpus <- lapply(X = fileConnections, FUN = readLines, skipNul = TRUE, encoding 
 lapply(X = fileConnections, FUN = close)
 ```
 
+Let's count the number of elements in each:
+```{r}
+numElements <- sapply(corpus, length)
+print(numElements)
+```
+
+
 # Data Scrubbing
 
 We want to clean the data bit, such as
@@ -73,11 +81,35 @@ We want to clean the data bit, such as
 * remove profanity!
 
 In order to do this, let's have a look at the [Natural Langue Processing Task View](https://cran.r-project.org/web/views/NaturalLanguageProcessing.html). There are plenty of packages to choose from, but for now let's start with [tm](https://cran.r-project.org/web/packages/tm/index.html).
+```{r getBadWords}
+library(RCurl)
+options(RCurlOptions = list(ssl.verifypeer = FALSE))
 
-In order to get things done faster, we pick out 5 % of entries from each type of data sources:
+badWords <- 
+    read.csv(text = 
+                 getURL("https://raw.githubusercontent.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words/master/en"), stringsAsFactors = FALSE)[,1]
+# Last line is an emoji:
+badWords <- badWords[-length(badWords)]
+# Ensure that no extra whitespace exitsts at either end:
+badWords <- trimws(badWords, which = "both")
+# Also ensure that no extra space:
+badWords <- gsub(" {2,}", "", badWords)
+# Count the number of words:
+countBadWords <- 
+    badWords %>% 
+    strsplit(split = " ") %>% 
+    sapply(FUN = length)
+
+```
+
+
+
 ```{r corpusSubsetting, cache=TRUE, dependson="readData"}
 set.seed(42)
-useRatio <- 0.05
+useRatio <- 0.25
+
+lapply(corpus, length)
+
 subsetCorpus <- 
     c(sample(corpus$Blogs, size = useRatio*length(corpus$Blogs), replace = FALSE),
       sample(corpus$News, size = useRatio*length(corpus$News), replace = FALSE),
@@ -87,6 +119,23 @@ rm(corpus); invisible(gc())
 ```
 
 Before we get started, let's download a list of profanity words commonly used. Here we take the list form [this website](https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words/blob/master/en). Enter at your on risk.
+```{r getBadWords}
+library(RCurl)
+options(RCurlOptions = list(ssl.verifypeer = FALSE))
+
+badWords <- 
+    getURL("https://raw.githubusercontent.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words/master/en") %>% 
+    read.csv(text = .,
+             stringsAsFactors = FALSE,
+             header = FALSE) %>% 
+    '['(,1)
+
+# Take out two or more spaces:
+badWords <- gsub(" {2,}","",badWords)
+# Take out padding and superfluous whitespace:
+badWords <- trimws(badWords, which = "both")
+badWords <- badWords[-length(badWords)] 
+```
 
 
 We then follow the instructions in the [tm package vignette](https://cran.r-project.org/web/packages/tm/vignettes/tm.pdf) and create an object which `tm` can work with, followed by a lot of cleaning. Most are steps are self-explanatory, but comments are provided:
@@ -94,10 +143,10 @@ We then follow the instructions in the [tm package vignette](https://cran.r-proj
 # Here, VCorpus stands for "Volatile Corpus"
 # Also, using VectorSource, means that each vector entry is treated like a "document"
 myCorpus <- VCorpus(VectorSource(subsetCorpus))
-#rm(subsetCorpus); invisible(gc())
+rm(subsetCorpus); invisible(gc())
 
 # Function to remove patterns
-toRemove <- content_transformer(function(x, pattern) gsub(pattern, " ", x))
+toRemove.space <- content_transformer(function(x, pattern) gsub(pattern, " ", x))
 toRemove.empty <- content_transformer(function(x, pattern) gsub(pattern, "", x))
 toChange <- content_transformer(function(x, pattern, replacement) gsub(pattern, replacement, x))
 toASCII <- content_transformer(function(x) iconv(x, "", "ASCII", "byte"))
@@ -109,9 +158,9 @@ myCorpus <- tm_map(myCorpus, toASCII)
 # Remove troublesome non-ASCII:
 myCorpus <- tm_map(myCorpus, toRemove.empty, "<.{2}>")
 # Remove ftp or http links:
-myCorpus <- tm_map(myCorpus, toRemove, "(f|ht)tp(s?)://(.*)[.][a-z]+")
-# Remove twitter handles (i.e. anything which has @ symbol followed by non-blank spaces:
-myCorpus <- tm_map(myCorpus, toRemove, "@[^\\s]+")
+myCorpus <- tm_map(myCorpus, toRemove.space, "(f|ht)tp(s?)://(.*)[.][a-z]+")
+# Remove twitter stuff (i.e. anything which has @ or # followed by non-blank spaces:
+myCorpus <- tm_map(myCorpus, toRemove.space, "@[^ ]+|#[^ ]+")
 # Set to lower case
 myCorpus <- tm_map(myCorpus, tolower)
 myCorpus.noStop <- tm_map(myCorpus, removeWords, stopwords("en"))
@@ -134,9 +183,7 @@ Note that we removed the so called "stop words", but saved into a new object cal
 stopwords("en")
 ```
 
-```{r echo=FALSE}
-invisible(gc())
-```
+
 Note that we have not done any word stemming so far, which might reduce memory usage. However, this is something I'll have to investigate further.
 
 Again, we follow the examples in the [tm package vignette](https://cran.r-project.org/web/packages/tm/vignettes/tm.pdf), and tokenize the data, and create n-grams for values 1, 2, and 3. 
@@ -155,13 +202,13 @@ QuadgramTokenizer <- function(x) {
     NGramTokenizer(x, Weka_control(min = 4, max = 4))
 }
 
-unigrams <- 
+unigrams.dtm <- 
     DocumentTermMatrix(myCorpus.noStop, 
                        control = list(tokenize = unigramTokenizer))
-bigrams <- DocumentTermMatrix(myCorpus, control = list(tokenize = BigramTokenizer))
-bigrams.noStop <- DocumentTermMatrix(myCorpus.noStop, control = list(tokenize = BigramTokenizer))
-trigrams <- DocumentTermMatrix(myCorpus, control = list(tokenize = TrigramTokenizer))
-quadgrams <- DocumentTermMatrix(myCorpus, control = list(tokenize = QuadgramTokenizer))
+bigrams.dtm <- DocumentTermMatrix(myCorpus, control = list(tokenize = BigramTokenizer))
+bigrams.noStop.dtm <- DocumentTermMatrix(myCorpus.noStop, control = list(tokenize = BigramTokenizer))
+trigrams.dtm <- DocumentTermMatrix(myCorpus, control = list(tokenize = TrigramTokenizer))
+quadgrams.dtm <- DocumentTermMatrix(myCorpus, control = list(tokenize = QuadgramTokenizer))
 ```
 ```{r echo=FALSE}
 rm(myCorpus); rm(myCorpus.noStop)
@@ -203,43 +250,75 @@ invisible(gc())
 
 Now, let's extract the unigrams into a little more user friendly format:
 
-```{r createDFs, cache=TRUE, dependson=c("ngrams","corpusCleaning","corpusSubsetting", "readData")}
+```{r createDTs, cache=TRUE, dependson=c("ngrams","corpusCleaning","corpusSubsetting", "readData")}
 
-unigrams.dt <- 
-    data.table(Term = unigrams$dimnames$Terms[unigrams$j],
-               termFrequencyInDoc = unigrams$v)[, .(Frequency = sum(termFrequencyInDoc)), 
+unigrams <- 
+    data.table(Term = unigrams.dtm$dimnames$Terms[unigrams.dtm$j],
+               termFrequencyInDoc = unigrams.dtm$v)[, .(Frequency = sum(termFrequencyInDoc)), 
                                                 by = Term][order(Frequency, decreasing = TRUE)]
 
-bigrams.dt <- 
-    data.table(Term = bigrams$dimnames$Terms[bigrams$j],
-               termFrequencyInDoc = bigrams$v)[, .(Frequency = sum(termFrequencyInDoc)), 
+bigrams <- 
+    data.table(Term = bigrams.dtm$dimnames$Terms[bigrams.dtm$j],
+               termFrequencyInDoc = bigrams.dtm$v)[, .(Frequency = sum(termFrequencyInDoc)), 
                                                 by = Term][order(Frequency, decreasing = TRUE)]
-bigrams.noStop.dt <- 
-    data.table(Term = bigrams.noStop$dimnames$Terms[bigrams.noStop$j],
-               termFrequencyInDoc = bigrams.noStop$v)[, .(Frequency = sum(termFrequencyInDoc)), 
+bigrams.noStop <- 
+    data.table(Term = bigrams.noStop.dtm$dimnames$Terms[bigrams.noStop.dtm$j],
+               termFrequencyInDoc = bigrams.noStop.dtm$v)[, .(Frequency = sum(termFrequencyInDoc)), 
                                                       by = Term][order(Frequency, decreasing = TRUE)]
 
-trigrams.dt <- 
-    data.table(Term = trigrams$dimnames$Terms[trigrams$j],
-               termFrequencyInDoc = trigrams$v)[, .(Frequency = sum(termFrequencyInDoc)), 
+trigrams <- 
+    data.table(Term = trigrams.dtm$dimnames$Terms[trigrams.dtm$j],
+               termFrequencyInDoc = trigrams.dtm$v)[, .(Frequency = sum(termFrequencyInDoc)), 
                                                 by = Term][order(Frequency, decreasing = TRUE)]
 
-quadgrams.dt <- 
-    data.table(Term = quadgrams$dimnames$Terms[quadgrams$j],
-               termFrequencyInDoc = quadgrams$v)[, .(Frequency = sum(termFrequencyInDoc)), 
+quadgrams <- 
+    data.table(Term = quadgrams.dtm$dimnames$Terms[quadgrams.dtm$j],
+               termFrequencyInDoc = quadgrams.dtm$v)[, .(Frequency = sum(termFrequencyInDoc)), 
                                                 by = Term][order(Frequency, decreasing = TRUE)]
 
 ```
+```{r rmNGrams.dtm}
+rm(list = c("unigrams.dtm", "bigrams.dtm", "bigrams.noStop.dtm", "trigrams.dtm", "quadgrams.dtm"))
+invisible(gc())
+```
+
+Ok, let's remove the profanity:
+
+```{r removeBadWords}
+profanityRegExp <- paste0("(^| )",badWords,"( |$)", collapse = "|")
+# grep(profanityRegExp, Term, invert = TRUE)
+unigrams <- unigrams[grep(profanityRegExp, Term, invert = TRUE)]
+bigrams <- bigrams[grep(profanityRegExp, Term, invert = TRUE)]
+bigrams.noStop <- bigrams.noStop[grep(profanityRegExp, Term, invert = TRUE)]
+trigrams <- trigrams[grep(profanityRegExp, Term, invert = TRUE)]
+quadgrams <- quadgrams[grep(profanityRegExp, Term, invert = TRUE)]
+```
 
 
-Ok, let's inspect the 1-grams and see how many words are needed to 
+```{r saveNGrams}
+save(list = c("unigrams", 
+              "bigrams", "bigrams.noStop", 
+              "trigrams", 
+              "quadgrams"), 
+     file = "C:/BE/Coursera/Capstone/data/ngrams_quarter.RData")
+```
+
+
+
+Ok, let's inspect the 1-grams and see how many words are needed to capture a certain percentage of words frequencies:
 
 ```{r}
-Proportion <- cumsum(unigrams.dt$Frequency)/sum(unigrams.dt$Frequency)
-
+Proportion <- cumsum(unigrams$Frequency)/sum(unigrams$Frequency)
+numWords <- length(Proportion)
 plot(Proportion)
 
-which.max(Proportion > 0.95)/length(Proportion)
+which.max(Proportion > 0.975)/numWords
+
+percentiles <- seq(0.90,0.99,by = 0.01)
+100*sapply(X = percentiles, FUN = function(x) which.max(Proportion > x)/numWords)
+
+#which.max(Proportion > 0.95)/numWords
+
 ```
 
 
@@ -249,8 +328,8 @@ Then, we look at he top 25 or so n-grams, and plot histograms. Again, we show th
 
 ```{r plotFreq_1gram, cache=TRUE, dependson=c("createDFs","ngrams","corpusCleaning","corpusSubsetting", "readData")}
 
-ggplot(data=head(unigrams.dt, n = 25), 
-       aes(x = reorder(Term, Frequency), y=Frequency)) + 
+ggplot(data = head(unigrams, n = 25), 
+       aes(x = reorder(Term, Frequency), y = Frequency)) + 
     geom_bar(stat = "identity") + 
     theme(axis.text.x = element_text(angle = 90, hjust = 0.5, size = 10),  
           axis.text.y = element_text(size = 12), 
@@ -258,6 +337,7 @@ ggplot(data=head(unigrams.dt, n = 25),
           ) + 
     xlab("Word") + ggtitle("Top 30 unigrams in frequency") +
     coord_flip()
+
 ```
 
 
@@ -265,8 +345,8 @@ ggplot(data=head(unigrams.dt, n = 25),
 
 ```{r plotFreq_2gram, echo=FALSE, cache=TRUE, dependson=c("createDFs","ngrams","corpusCleaning","corpusSubsetting", "readData")}
 
-ggplot(data=head(bigrams.dt, n = 25), 
-       aes(x = reorder(Term, Frequency), y=Frequency)) + 
+ggplot(data = head(bigrams, n = 25), 
+       aes(x = reorder(Term, Frequency), y = Frequency)) + 
     geom_bar(stat = "identity") + 
     theme(axis.text.x = element_text(angle = 90, hjust = 0.5, size = 10),  
           axis.text.y = element_text(size = 12), 
@@ -274,12 +354,13 @@ ggplot(data=head(bigrams.dt, n = 25),
           ) + 
     xlab("Word") + ggtitle("Top 25 bigrams in frequency") +
     coord_flip()
+
 ```
 
 ```{r plotFreq_2gram, echo=FALSE, cache=TRUE, dependson=c("createDFs","ngrams","corpusCleaning","corpusSubsetting", "readData")}
 
-ggplot(data=head(bigrams.noStop.dt, n = 25), 
-       aes(x = reorder(Term, Frequency), y=Frequency)) + 
+ggplot(data = head(bigrams.noStop, n = 25), 
+       aes(x = reorder(Term, Frequency), y = Frequency)) + 
     geom_bar(stat = "identity") + 
     theme(axis.text.x = element_text(angle = 90, hjust = 0.5, size = 10),  
           axis.text.y = element_text(size = 12), 
@@ -287,12 +368,13 @@ ggplot(data=head(bigrams.noStop.dt, n = 25),
           ) + 
     xlab("Word") + ggtitle("Top 25 bigrams (no stop words) in frequency") +
     coord_flip()
+
 ```
 
 ```{r plotFreq_3gram, cache=TRUE, dependson=c("createDFs","ngrams","corpusCleaning","corpusSubsetting", "readData")}
 
-ggplot(data=head(trigrams.dt, n = 25), 
-       aes(x = reorder(Term, Frequency), y=Frequency)) + 
+ggplot(data = head(trigrams, n = 25), 
+       aes(x = reorder(Term, Frequency), y = Frequency)) + 
     geom_bar(stat = "identity") + 
     theme(axis.text.x = element_text(angle = 90, hjust = 0.5, size = 10),  
           axis.text.y = element_text(size = 12), 
@@ -300,13 +382,14 @@ ggplot(data=head(trigrams.dt, n = 25),
           ) + 
     xlab("Word") + ggtitle("Top 30 trigrams in frequency") +
     coord_flip()
+
 ```
 
 
 ```{r plotFreq_4gram, cache=TRUE, dependson=c("createDFs","ngrams","corpusCleaning","corpusSubsetting", "readData")}
 
-ggplot(data=head(quadgrams.dt, n = 30), 
-       aes(x = reorder(Term, Frequency), y=Frequency)) + 
+ggplot(data = head(quadgrams, n = 30), 
+       aes(x = reorder(Term, Frequency), y = Frequency)) + 
     geom_bar(stat = "identity") + 
     theme(axis.text.x = element_text(angle = 90, hjust = 0.5, size = 10),  
           axis.text.y = element_text(size = 12), 
@@ -314,6 +397,7 @@ ggplot(data=head(quadgrams.dt, n = 30),
           ) + 
     xlab("Word") + ggtitle("Top 30 quadgrams in frequency") +
     coord_flip()
+
 ```
 
 # Next Steps
@@ -337,56 +421,55 @@ Obviously, there's a lot more work to be done, such as (but not limited to):
 Ok, let's use the n-grams above.
 
 ```{r inlude=FALSE}
-myText <- c("The guy in front of me just bought a pound of bacon, a bouquet, and a case of", 
-            "You're the reason why I smile everyday. Can you follow me please? It would mean the", 
-            "Hey sunshine, can you follow me and make me the", 
-            "Very early observations on the Bills game: Offense still struggling but the",
-            "Go on a romantic date at the",
-            "Well I'm pretty sure my granny has some old bagpipes in her garage I'll dust them off and be on my",
-            "Ohhhhh #PointBreak is on tomorrow. Love that film and haven't seen it in quite some", 
-            "After the ice bucket challenge Louis will push his long wet hair out of his eyes with his little",
-            "Be grateful for the good times and keep the faith during the",
-            "If this isn't the cutest thing you've ever seen, then you must be")
-
-potentialAnswers <- 
-    list(c("soda","beer","pretzels","cheese"), # B: soda X, pretzels X, 
-         c("most","universe","world","best"), # B: world
-         c("happiest","bluest","smelliest","saddest"), # happiest
-         c("defense","referees","players","crowd"), # defense
-         c("movies","beach","grocery","mall"), # movies X, beach
-         c("way","phone","horse","motorcycle"), # B: way
-         c("weeks","thing","years","time"), # B: time
-         c("fingers","ears","eyes","toes"), # B: fingers
-         c("hard","bad","sad","worse"), # bad
-         c("asleep","insensitive","callous","insane")) # callous X, insane
+myText <- "this is spinal"
 
 # Remove leading and trailing spaces
 # send through the same routine as for the corpora
 # Find match in bi-grams and tri-grams. Estimate 
 
-# Assumes 
-getLastNWords <- function(text2extractWords, lastN){
-    # check if class is "character"
-    # check if only one element
-
-    # Remove leading and trailing whitespace
-    text2extractWords <- gsub(" +", " ", text2extractWords)
-    # Remove double or more spaces:
-    text2extractWords <- trimws(text2extractWords, "both")
-    wordSample <- unlist(strsplit(text2extractWords, " "))
-    wordSample[(length(wordSample)-lastN+1):length(wordSample)]
+prepareWords <- function(someText) {
+    # Lower case
+    someText <- tolower(someText)
+    # Remove ftp or http links:
+    someText <- gsub("(f|ht)tp(s?)://(.*)[.][a-z]+","",someText)
+    # Remove twitter handles (i.e. anything which has @ symbol followed by non-blank spaces:
+    gsub("@[^\\s]+","",someText)
+    # Remove numbers:
+    someText <- gsub("[0-9]+","",someText)
+    # Remove punctuation:
+    someText <- gsub("[',\\.!,?]","",someText)
+    # Remove whitespace:
+    someText <- trimws(someText, "both")
+    someText <- gsub(" +", " ", someText)
+    return(someText)
 }
 
-text2check <- getLastNWords(myText[1],4)
 
-quadgrams.dt[grep(text2check,Term)]
-trigrams.dt[grep(text2check,Term)]
+# Assumes that a single space separates words 
+getLastNWords <- function(wordString, N = 1){
+    # Convert to class "character":
+    wordString <- as.character(wordString)
+    # Extract a vector of the words
+    wordSample <- unlist(strsplit(wordString, " "))
+    # Handle length issues: Return vector of length N filled with NA's
+    wordSample <- wordSample[(length(wordSample) - N + 1):length(wordSample)]
+    return(paste(wordSample))
+}
 
-trigrams.test <- trigrams[,grep("^case of",trigrams$dimnames$Terms)]
-trigrams.freq <- sort(colSums(as.matrix(trigrams.test)), decreasing = TRUE)
-trigrams.df <- data.frame(Word = names(trigrams.freq), 
-                          Frequency = trigrams.freq)
-head(trigrams.df)
+text4ngram <- function(someText, n = 1) {
+    paste0("^",
+           paste0(getLastNWords(prepareWords(someText),n),collapse = " ")
+           )
+} 
+
+
+quadgrams[grep(text4ngram(myText,3),Term)] %>% print
+trigrams[grep(text4ngram(myText,2),Term)]
+bigrams[grep(text4ngram(myText),Term)]
+
+trigrams[grep("^monkeys this",Term)]
+
 
 ```
+
 
