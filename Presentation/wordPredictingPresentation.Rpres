@@ -29,16 +29,16 @@ Balance of Speed and Accuracy
 ========================================================
 Most words have low frequency. In fact, in order to get 97.5% of all unigram frequencies, we only need about 28% of the words.
 
-*Similar story for bi-, tri- and quadgrams.*
+*Similar story for bi-, tri- and quadgrams, although we throw out a higher proportion of n-grams.*
 
-We sacrificed predictive power for speed. For instance, full model correctly predicted "tap", after "this is spinal", but after removing low frequencies, this is lost.
+We sacrifice some predictive power for speed.
 
 Mind your language
 ========================================================
 We removed profanity based on the list found here:
  <https://raw.githubusercontent.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words/master/en>
  
-*Enter at your own risk* :)
+*Follow link above at your own risk* :)
 
 **Have fun!**
 

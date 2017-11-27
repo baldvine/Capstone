@@ -308,17 +308,49 @@ save(list = c("unigrams",
 Ok, let's inspect the 1-grams and see how many words are needed to capture a certain percentage of words frequencies:
 
 ```{r}
-Proportion <- cumsum(unigrams$Frequency)/sum(unigrams$Frequency)
-numWords <- length(Proportion)
-plot(Proportion)
+Proportion.uni <-  cumsum(unigrams$Frequency)/sum(unigrams$Frequency)
+Proportion.bi <-   cumsum(bigrams$Frequency)/sum(bigrams$Frequency)
+Proportion.bi.noStop <-   cumsum(bigrams.noStop$Frequency)/sum(bigrams.noStop$Frequency)
+Proportion.tri <-  cumsum(trigrams$Frequency)/sum(trigrams$Frequency)
+Proportion.quad <- cumsum(quadgrams$Frequency)/sum(quadgrams$Frequency)
+numWords <- length(Proportion.uni)
+plot(Proportion.uni)
+# plot(Proportion.bi)
+# plot(Proportion.uni)
+# plot(Proportion.uni)
 
-which.max(Proportion > 0.975)/numWords
+proportions <- c("uni" = 0.975,
+                 "bi" = 0.90,
+                 "bi.noStop" = 0.75,
+                 "tri" = 0.72,
+                 "quad" = 0.66)
+
+which.max(Proportion.uni > proportions["uni"])/length(Proportion.uni)
+which.max(Proportion.bi > proportions["bi"])/length(Proportion.bi)
+which.max(Proportion.bi.noStop > proportions["bi.noStop"])/length(Proportion.bi.noStop)
+which.max(Proportion.tri > proportions["tri"])/length(Proportion.tri)
+which.max(Proportion.quad > proportions["quad"])/length(Proportion.quad)
 
 percentiles <- seq(0.90,0.99,by = 0.01)
-100*sapply(X = percentiles, FUN = function(x) which.max(Proportion > x)/numWords)
+100*sapply(X = percentiles, FUN = function(x) which.max(Proportion.uni > x)/numWords)
 
-#which.max(Proportion > 0.95)/numWords
 
+unigrams <- unigrams[1:which.max(Proportion.uni > proportions["uni"])]
+bigrams <- bigrams[1:which.max(Proportion.bi > proportions["bi"])]
+bigrams.noStop <- bigrams.noStop[1:which.max(Proportion.bi.noStop > proportions["bi.noStop"])]
+trigrams <- trigrams[1:which.max(Proportion.tri > proportions["tri"])]
+quadgrams <- quadgrams[1:which.max(Proportion.quad > proportions["quad"])]
+
+
+```
+
+
+```{r saveNGrams_small}
+save(list = c("unigrams", 
+              "bigrams", "bigrams.noStop", 
+              "trigrams", 
+              "quadgrams"), 
+     file = "./data/highFreq_ngrams_quarter.RData")
 ```
 
 
@@ -421,46 +453,10 @@ Obviously, there's a lot more work to be done, such as (but not limited to):
 Ok, let's use the n-grams above.
 
 ```{r inlude=FALSE}
+
+source("./shinyApp/textPreparing.R")
+
 myText <- "this is spinal"
-
-# Remove leading and trailing spaces
-# send through the same routine as for the corpora
-# Find match in bi-grams and tri-grams. Estimate 
-
-prepareWords <- function(someText) {
-    # Lower case
-    someText <- tolower(someText)
-    # Remove ftp or http links:
-    someText <- gsub("(f|ht)tp(s?)://(.*)[.][a-z]+","",someText)
-    # Remove twitter handles (i.e. anything which has @ symbol followed by non-blank spaces:
-    gsub("@[^\\s]+","",someText)
-    # Remove numbers:
-    someText <- gsub("[0-9]+","",someText)
-    # Remove punctuation:
-    someText <- gsub("[',\\.!,?]","",someText)
-    # Remove whitespace:
-    someText <- trimws(someText, "both")
-    someText <- gsub(" +", " ", someText)
-    return(someText)
-}
-
-
-# Assumes that a single space separates words 
-getLastNWords <- function(wordString, N = 1){
-    # Convert to class "character":
-    wordString <- as.character(wordString)
-    # Extract a vector of the words
-    wordSample <- unlist(strsplit(wordString, " "))
-    # Handle length issues: Return vector of length N filled with NA's
-    wordSample <- wordSample[(length(wordSample) - N + 1):length(wordSample)]
-    return(paste(wordSample))
-}
-
-text4ngram <- function(someText, n = 1) {
-    paste0("^",
-           paste0(getLastNWords(prepareWords(someText),n),collapse = " ")
-           )
-} 
 
 
 quadgrams[grep(text4ngram(myText,3),Term)] %>% print
