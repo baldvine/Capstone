@@ -16,6 +16,11 @@ prepareWordString <- function(someText) {
     return(someText)
 }
 
+# Do some reverting of the above:
+revertPreparation <- function(word) {
+    if (word == "i") return("I")
+    if (word == "im") return("I'm")
+}
 
 # Assumes that a single space separates words 
 getLastNWords <- function(wordString, N = 1) {
@@ -31,6 +36,7 @@ getLastNWords <- function(wordString, N = 1) {
 # Get text ready for grepping with in an n-gram:
 text4ngram <- function(someText, n = 1) {
     paste0("^",
-           paste0(getLastNWords(prepareWordString(someText),n),collapse = " ")
+           paste0(getLastNWords(prepareWordString(someText),n),collapse = " "),
+           " "  # NB: I need a final space!
     )
 }

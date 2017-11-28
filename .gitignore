@@ -6,6 +6,7 @@ MilestoneReport_BE_files/
 *.html
 *.zip
 *.csv
+*.Rdata
 
 .DS_Store
 data__packages

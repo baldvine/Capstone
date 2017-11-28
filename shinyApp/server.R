@@ -17,7 +17,7 @@ source("./textPredicting.R")
 shinyServer(function(input, output) {
     
     # Load in data:
-    # data2use <- reactive({ruspini})
+    load("./data/highFreq_ngrams_quarter.RData")
     
     predictedWord <- reactive({
         return(predictWord(input$text2predict))

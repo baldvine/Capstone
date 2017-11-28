@@ -15,7 +15,7 @@ library(magrittr)
 shinyUI(fluidPage(
     
     # Application title
-    titlePanel("Text Prediction App"),
+    titlePanel("Text Prediction Application"),
     
     # Sidebar with a slider input for number of bins 
     sidebarLayout(
@@ -30,11 +30,11 @@ shinyUI(fluidPage(
         # Show a plot of the generated distribution
         mainPanel(
             h3("Baldvin Einarsson, PhD"),
-            h3("Prediction:"),
-            # helpText(a("See github page for details on initialization methods (and code!)",
-            #            href="https://github.com/baldvine/initializeKmeans",
+            # helpText(a("See RPubs presentation for more information on data and methods",
+            #            href="",
             #            target="_blank")
             #),
+            h3("Prediction:"),
             textOutput(outputId = "textPrediction")
         )
     )      
