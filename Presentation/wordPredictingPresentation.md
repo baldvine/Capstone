@@ -8,9 +8,9 @@ Application information
 ========================================================
 A cool shiny app for text prediction can be found here:
 
- <https://baldvine.shinyapps.io/textPrediction/>
+ <https://baldvine.shinyapps.io/wordpredictionapp/>
 
-The code and more detailed information is on the following 
+The code is on the following 
 github page:
 
  <https://github.com/baldvine/Capstone>
@@ -27,7 +27,7 @@ If an unknown words is encountered, we simply predict the most common unigram, "
 
 Balance of Speed and Accuracy
 ========================================================
-Most words have low frequency. In fact, in order to get 97.5% of all unigram frequencies, we only need about 28% of the words.
+Most words have low frequency. In fact, in order to get 95% of all unigram frequencies, we only need about 19% of the words.
 
 *Similar story for bi-, tri- and quadgrams, although we throw out a higher proportion of n-grams.*
 
@@ -37,8 +37,10 @@ Mind your language
 ========================================================
 We removed profanity based on the list found here:
  <https://raw.githubusercontent.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words/master/en>
- 
+
 *Follow link above at your own risk* :)
+
+This list is used by several companies, including Shutterfly. 
 
 **Have fun!**
 

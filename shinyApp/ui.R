@@ -30,10 +30,10 @@ shinyUI(fluidPage(
         # Show a plot of the generated distribution
         mainPanel(
             h3("Baldvin Einarsson, PhD"),
-            # helpText(a("See RPubs presentation for more information on data and methods",
-            #            href="",
-            #            target="_blank")
-            #),
+            helpText(a("See RPubs presentation for more information on data and methods",
+                       href="http://rpubs.com/baldvine/textPrediction",
+                       target="_blank")
+            ),
             h3("Prediction:"),
             textOutput(outputId = "textPrediction")
         )

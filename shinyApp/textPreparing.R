@@ -20,6 +20,7 @@ prepareWordString <- function(someText) {
 revertPreparation <- function(word) {
     if (word == "i") return("I")
     if (word == "im") return("I'm")
+    return(word)
 }
 
 # Assumes that a single space separates words 

@@ -19,6 +19,7 @@ predictWord <- function(wordString) {
         myPrediction <- predictFromBiGram(words)
     }
     
+    #return(revertPreparation(myPrediction))
     return(myPrediction)
     
 }

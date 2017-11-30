@@ -319,11 +319,18 @@ plot(Proportion.uni)
 # plot(Proportion.uni)
 # plot(Proportion.uni)
 
-proportions <- c("uni" = 0.975,
-                 "bi" = 0.90,
-                 "bi.noStop" = 0.75,
-                 "tri" = 0.72,
-                 "quad" = 0.66)
+# proportions <- c("uni" = 0.975,
+#                  "bi" = 0.90,
+#                  "bi.noStop" = 0.75,
+#                  "tri" = 0.72,
+#                  "quad" = 0.66)
+
+proportions <- c("uni" = 0.95,
+                 "bi" = 0.80,
+                 "bi.noStop" = 0.6,
+                 "tri" = 0.5,
+                 "quad" = 0.4)
+
 
 which.max(Proportion.uni > proportions["uni"])/length(Proportion.uni)
 which.max(Proportion.bi > proportions["bi"])/length(Proportion.bi)
@@ -346,11 +353,22 @@ quadgrams <- quadgrams[1:which.max(Proportion.quad > proportions["quad"])]
 
 
 ```{r saveNGrams_small}
-save(list = c("unigrams", 
-              "bigrams", "bigrams.noStop", 
-              "trigrams", 
-              "quadgrams"), 
-     file = "./data/highFreq_ngrams_quarter.RData")
+# save(list = c("unigrams", 
+#               "bigrams", "bigrams.noStop", 
+#               "trigrams", 
+#               "quadgrams"), 
+#      file = "./shinyApp/highFreq_ngrams_quarter.RData")
+
+# save(list = c("unigrams",
+#               "bigrams",
+#               "trigrams",
+#               "quadgrams"),
+#      file = "./shinyApp/higherFreq_ngrams_quarter.RData")
+
+saveRDS(object = unigrams, file = "./shinyApp/unigrams.RDS")
+saveRDS(object = bigrams, file = "./shinyApp/bigrams.RDS")
+saveRDS(object = trigrams, file = "./shinyApp/trigrams.RDS")
+saveRDS(object = quadgrams, file = "./shinyApp/quadgrams.RDS")
 ```
 
 
