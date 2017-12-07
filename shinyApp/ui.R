@@ -34,6 +34,7 @@ shinyUI(fluidPage(
                        href="http://rpubs.com/baldvine/textPrediction",
                        target="_blank")
             ),
+            helpText("Note that the Shiny server tends to get disconnected. The reasons are unknown but have nothing to do with the app."),
             h3("Prediction:"),
             textOutput(outputId = "textPrediction")
         )
